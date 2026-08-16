@@ -97,13 +97,19 @@ def airmass(alt_deg):
     troncamento, e infatti non ce n'è uno. Sotto l'orizzonte il risultato è
     `inf`, che è la risposta giusta — un oggetto tramontato non ha una via
     d'aria un po' lunga, non ce l'ha proprio.
+
+    **Allo zenit si tiene il pavimento a 1.** L'interpolazione di Kasten & Young
+    scende a 0.99971, e tre decimillesimi non contano — finché non finiscono in
+    `k(X − 1)`, dove diventano un'estinzione *negativa*: un'atmosfera che rende
+    le stelle più brillanti. Vale 4e-5 mag, si vede solo nei test, ed è il
+    genere di assurdità che è meglio non far entrare nel modello.
     """
     alt = np.asarray(alt_deg, dtype=float)
     z = 90.0 - alt
     with np.errstate(invalid="ignore", divide="ignore"):
         denom = np.cos(np.radians(z)) + _KY_A * np.power(np.maximum(_KY_B - z, 1e-9), -_KY_C)
         x = np.where(denom > 0, 1.0 / denom, np.inf)
-    x = np.where(alt >= 0.0, x, np.inf)
+    x = np.where(alt >= 0.0, np.maximum(x, 1.0), np.inf)
     return x if np.ndim(x) else float(x)
 
 

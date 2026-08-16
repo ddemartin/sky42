@@ -181,12 +181,15 @@ def sky_brightness(*, zenith_mag, extinction_k, target_alt_deg,
     return {
         "sky_mag": v,
         "dark_mag": sky_magnitude(scuro),
-        # Le penalità sono differenze di magnitudine: quanto ciascun contributo
-        # ha schiarito il cielo rispetto a quello scuro da solo. Positive =
-        # peggiorano. Sono le stesse che finiranno in `pen_moon` e
-        # `pen_twilight` di `observation_window`.
-        "pen_moon": sky_magnitude(scuro) - sky_magnitude(scuro + luna),
-        "pen_twilight": sky_magnitude(scuro + luna) - v,
+        # Di quanto ciascun contributo ha **schiarito il cielo**, in
+        # magnitudini. Attenzione: non sono le penalità di `observation_window`,
+        # che valgono la metà — un cielo più chiaro di 1 mag costa 0.5 mag di
+        # magnitudine limite, perché il rumore va come la radice del fondo. Le
+        # due grandezze si chiamavano uguale, e chiamarle uguale era il modo
+        # più veloce per raddoppiare tutte le penalità del sistema.
+        "delta_moon_mag": sky_magnitude(scuro) - sky_magnitude(scuro + luna),
+        "delta_twilight_mag": sky_magnitude(scuro + luna) - v,
+        "dark_nl": scuro,
         "moon_nl": luna,
         "twilight_nl": crepuscolo,
         "total_nl": totale,

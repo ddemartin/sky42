@@ -1307,6 +1307,62 @@ notti.
 
 ---
 
+## 2026-08-16 — la scomposizione deve tornare, o non spiega niente
+
+`core/visibility/limits.py` calcola `eff_vlim` e le quattro penalità che lo
+spiegano. Tre cose scoperte scrivendolo, tutte misurate.
+
+**Le penalità non sommavano.** Con la definizione «ciascun contributo misurato
+sul cielo scuro, come se gli altri non ci fossero» — quella di
+docs/modelli.md, scritta in fase di progetto — la somma delle quattro non fa la
+penalità totale, perché i logaritmi non sono additivi sui termini incrociati.
+Il documento prevedeva uno scarto sotto 0.05 mag; **misurato, è 0.21 mag** con
+un quarto di Luna in crepuscolo e **0.76** con Luna piena vicina. Sono
+scostamenti che in un ranking si vedono.
+
+La soluzione non è allargare la tolleranza: le penalità ora sono
+**incrementali e in ordine** — airmass sul cielo scuro allo zenit, Luna su
+quel cielo, crepuscolo su cielo più Luna, poi trailing — e sommano
+esattamente, con `residual` che resta nel risultato e vale 1e-16. Il prezzo è
+una convenzione da sapere: `pen_twilight` è quanto aggiunge il crepuscolo
+*dato che* c'è già quella Luna, non quanto costerebbe da solo. Il totale non
+dipende dall'ordine, la ripartizione fra i due sì. Documento aggiornato.
+
+**Il fattore è 1.25, non 2.5.** In regime sky-limited S/N ∝ 1/√B: una
+magnitudine di cielo in più ne costa **mezza** di limite. Scrivere 2.5
+raddoppia ogni penalità del sistema lasciando numeri perfettamente plausibili,
+ed è l'errore che questo file può fare senza che nessuno se ne accorga. C'è un
+test che fissa 0.5 mag di penalità per 1 mag di cielo, costruito con il
+crepuscolo perché è l'unico contributo di cui si può fissare esattamente il
+valore.
+
+**`eff_vlim` è relativo alla notte migliore di quel sito.** Il fondo entra come
+rapporto `B_tot / B_zenit_scuro`, quindi due siti con lo stesso `vlim_ref` e
+cieli diversi danno lo stesso limite allo zenit: quanto sia buono il cielo del
+sito **è già dentro `vlim_ref`**. È corretto, ma va saputo, perché è il punto in
+cui il confronto fra siti diventa fragile: un `vlim_ref` ottimistico fa vincere
+sempre quel sito. Un test lo mette per iscritto e rimanda alla domanda aperta
+n. 5, che da questa scoperta smette di essere una rifinitura.
+
+**Un pavimento a 1 sull'airmass.** L'interpolazione di Kasten & Young allo
+zenit dà 0.99971, e tre decimillesimi non contano — finché non entrano in
+`k(X−1)`, dove diventano estinzione negativa: un'atmosfera che rende le stelle
+più brillanti. Vale 4e-5 mag e si vedeva solo come un `eff_vlim` di 21.30004 al
+posto di 21.3, cioè da un test scritto con tolleranza stretta. Il pavimento sta
+in `geometry.airmass`, dove nessuno può scavalcarlo.
+
+**Il trailing decide la posa, il segnale decide quante.** `t_sub` è il minimo
+fra la posa che tiene la traccia dentro una FWHM e il massimo dello strumento;
+`n_subs` viene da quanto segnale serve. Nel piano di posa c'è il `max` fra
+seeing e 1.5 pixel, che serve ai setup sottocampionati — con seeing 1.6″ e
+pixel da 2″ la tolleranza vera è il pixel, non il seeing. Esempio misurato: un
+NEO a 4″/min sull'RC700 impone pose da **24 s**, e per arrivare a V 20.5 con la
+Luna piena ne servirebbero 454: due ore secche, che non ci stanno nella
+finestra. È esattamente il caso in cui `eff_vlim` da solo direbbe «si vede» e
+si tornerebbe a casa senza dati.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1340,7 +1396,12 @@ Si chiudono con numeri misurati, non con previsioni.
    stessa posa, è la strada più corta.
 5. **`vlim_ref` dichiarato contro misurato.** Di quanto sbaglia la stima
    iniziale su ciascun setup? È la taratura che rende sensato tutto il resto,
-   perché ogni soglia del radar ci si appoggia.
+   perché ogni soglia del radar ci si appoggia. **Aggravata il 2026-08-16:**
+   `eff_vlim` misura le penalità rispetto alla notte migliore *di quel sito*,
+   quindi la qualità del cielo è già dentro `vlim_ref` e non viene ricalcolata
+   da nessuna parte. Ne segue che il confronto fra siti vale esattamente quanto
+   valgono i `vlim_ref` dichiarati: finché sono stime, `BEST SITE TONIGHT` è
+   un'opinione.
 6. **Tj < 3.0 o < 3.05?** Misurato il 2026-08-15: la soglia larga porta da
    33.394 a **54.651** oggetti, cioè **+64%** — molto più di quanto suggerisca
    un ritocco di 0.05. Resta aperto se quei 21.257 in più contengano qualcosa

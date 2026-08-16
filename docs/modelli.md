@@ -155,7 +155,11 @@ H-G nemmeno se ha un H nel catalogo.
 X = 1 / [cos z + 0.50572 (96.07995 - z)^(-1.6364)]
 ```
 
-Valida fino all'orizzonte, a differenza di `sec z`. Sopra `X = 40` si tronca.
+Valida fino all'orizzonte, dove vale 38 e non diverge — a differenza di
+`sec z`, che sbaglia del 3% a 10° di altezza, dell'11% a 5°, del 47% a 2°.
+Sotto l'orizzonte è infinita; allo zenit si tiene il pavimento a 1, perché
+l'interpolazione scenderebbe a 0.99971 e in `k(X−1)` diventerebbe
+un'estinzione negativa.
 
 Alt/az, transito, sorgere e tramonto da Skyfield per Sole e Luna; per il target
 si campiona la notte e si prendono i massimi e gli attraversamenti sulla
@@ -232,16 +236,24 @@ questa:
 
 ```
 pen_airmass   = k (X-1) + 1.25 log₁₀(B_scuro(Z) / B_zenit)
-pen_moon      = 1.25 log₁₀([B_scuro(Z) + B_luna] / B_scuro(Z))
-pen_twilight  = 1.25 log₁₀([B_scuro(Z) + B_crep] / B_scuro(Z))
+pen_moon      = 1.25 log₁₀([B_scuro + B_luna] / B_scuro)
+pen_twilight  = 1.25 log₁₀(B_tot / [B_scuro + B_luna])
 pen_trailing  = 1.25 log₁₀(1 + L/θ)
 ```
 
-La somma delle quattro non è esattamente la penalità totale quando Luna e
-crepuscolo agiscono insieme (i logaritmi non sono additivi sui termini
-incrociati): il totale che vale è `eff_vlim`, e le quattro sono la
-scomposizione leggibile. La differenza si registra e resta sotto 0.05 mag nei
-casi realistici; se cresce, è un cielo in cui non si osserva comunque.
+Le quattro sono **incrementali e in quest'ordine**, e per costruzione sommano
+esattamente a `vlim_ref + guadagno_posa − eff_vlim`. L'ordine è una
+convenzione da sapere: `pen_twilight` è quanto aggiunge il crepuscolo *dato
+che* c'è già quella Luna. Misurare ciascun contributo sul cielo scuro, come se
+gli altri non ci fossero, si legge meglio ma non somma: misurato, lascia 0.2
+mag di scarto con un quarto di Luna in crepuscolo e 0.76 con Luna piena. Il
+campo `residual` resta nel risultato come verifica, e vale zero.
+
+`eff_vlim` misura le penalità **rispetto alla notte migliore di quel sito**:
+il fondo entra come rapporto `B_tot / B_zenit_scuro`, quindi quanto sia buono
+il cielo del sito sta già dentro `vlim_ref`. Due siti con lo stesso `vlim_ref`
+e cieli diversi danno lo stesso limite allo zenit — che è corretto, e rende la
+taratura di `vlim_ref` la cosa da cui dipende ogni confronto fra siti.
 
 Per l'astrometria si usa `eff_vlim + vlim_astrometric_delta`: rivelare un
 puntino e misurarne la posizione a 0.3" non sono la stessa soglia.

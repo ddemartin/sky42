@@ -136,11 +136,11 @@ def test_la_somma_e_in_flusso_non_in_magnitudine():
     assert b["total_nl"] == pytest.approx(
         dark_sky_nl(ZENITH_MAG, 30.0, K) + b["moon_nl"] + b["twilight_nl"])
     assert b["sky_mag"] < b["dark_mag"]
-    # Le penalità sono positive e si sommano al netto di quanto la Luna abbia
-    # già schiarito: è la scomposizione che finirà in `observation_window`.
-    assert b["pen_moon"] > 0 and b["pen_twilight"] > 0
+    # Quanto ciascuno ha schiarito il cielo, al netto dell'altro. Non sono le
+    # penalità sul limite: quelle valgono la metà e le calcola `limits.py`.
+    assert b["delta_moon_mag"] > 0 and b["delta_twilight_mag"] > 0
     assert b["dark_mag"] - b["sky_mag"] == pytest.approx(
-        b["pen_moon"] + b["pen_twilight"], abs=1e-9)
+        b["delta_moon_mag"] + b["delta_twilight_mag"], abs=1e-9)
 
 
 def test_il_crepuscolo_ha_la_forma_dichiarata():

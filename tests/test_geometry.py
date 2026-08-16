@@ -82,11 +82,13 @@ def test_la_precessione_non_si_puo_trascurare():
 
 def test_airmass_ai_valori_noti():
     """Allo zenit 1, a 60° di distanza zenitale 2, all'orizzonte 38."""
-    # Allo zenit la formula dà 0.99971 e non esattamente 1: è una proprietà
-    # nota dell'interpolazione di Kasten & Young, non un errore nostro. Tre
-    # decimillesimi di airmass valgono 3e-4 mag di estinzione — un centesimo
-    # di quanto sappiamo misurare.
-    assert airmass(90.0) == pytest.approx(1.0, abs=3e-4)
+    # Allo zenit esattamente 1. La formula di Kasten & Young darebbe 0.99971 —
+    # proprietà nota dell'interpolazione, non un errore — ma un'airmass sotto 1
+    # diventa estinzione negativa in `limits.py`, cioè un'atmosfera che
+    # illumina. Il pavimento a 1 sta lì per quello.
+    assert airmass(90.0) == 1.0
+    grezza = 1 / (np.cos(0.0) + 0.50572 * (96.07995 - 0.0) ** -1.6364)
+    assert grezza == pytest.approx(0.99971, abs=1e-5)
     assert airmass(30.0) == pytest.approx(2.0, abs=0.01)      # sec z = 2
     # All'orizzonte la formula non diverge: 38 airmass, che è già un modo
     # elegante di dire «no».

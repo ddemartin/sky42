@@ -79,13 +79,13 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | piano delle notti (job `night_plan`) | ✅ | due settimane avanti per ogni sito attivo, ogni 6 h e all'avvio |
 | alt/az, airmass, separazione dalla Luna | ✅ | `core/visibility/geometry.py`: 1.7 M punti in 0.18 s, 11″ da Horizons |
 | brillanza del cielo con Luna | ✅ | `core/visibility/sky.py`: K&S 1991, contributi sommati in flusso, scomposti in uscita |
-| magnitudine limite efficace scomposta | ⏳ M1 | airmass, Luna, crepuscolo, trailing, separate |
+| magnitudine limite efficace scomposta | ✅ | `core/visibility/limits.py`: quattro penalità che sommano esatte al totale |
 | ricerca della finestra migliore | ⏳ M1 | campionamento a 5 min, non si assume il transito |
 | returning-object radar (stati e transizioni) | ⏳ M1 | isteresi 0.15 mag, conferma su due giri |
 | confronto automatico dei siti | ⏳ M1 | `BEST SITE TONIGHT` e `BEST SITE NOW` |
 | ranking a pesi trasparenti | ⏳ M1 | pesi in `scoring_profile`, breakdown salvato |
 | dashboard: Tonight / Coming into range / Tj < 3 | ⏳ M1 | NiceGUI, come stock42: nessuna catena di build |
-| trailing ed esposizione consigliata | ⏳ M1 | `n × t` invece di un singolo tempo |
+| trailing ed esposizione consigliata | ✅ | `n × t`, con la posa massima dettata da traccia e pixel |
 | incertezza posizionale vs campo, mosaico | ⏳ M1 | dalla CEU di ASTORB, propagata a oggi |
 | watcher NEOCP | ⏳ M2 | **da anticipare se M1 si allunga**: la storia persa non si recupera |
 | watcher PCCP | ⏳ M2 | |
