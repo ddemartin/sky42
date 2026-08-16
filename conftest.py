@@ -16,6 +16,11 @@ from pathlib import Path
 
 _TMP = Path(tempfile.mkdtemp(prefix="sky42-test-"))
 os.environ["SKY42_DATA_DIR"] = str(_TMP)
+
+# Le effemeridi planetarie sono l'unica eccezione alla cartella temporanea: 32 MB
+# immutabili, uguali per chiunque, che non ha senso riscaricare a ogni sessione
+# di test. Si leggono soltanto — il database vero resta fuori portata.
+os.environ.setdefault("SKY42_EPHEM_DIR", str(Path(__file__).parent / "data" / "ephem"))
 os.environ["SKY42_LOAD_LIMIT"] = "0"      # niente attese sul carico durante i test
 os.environ["SKY42_TESTING"] = "1"         # main.py non deve controllare la porta
 

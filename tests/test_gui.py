@@ -132,3 +132,33 @@ async def test_osservatori_regge_il_database_vuoto(user: User, db):
     await user.open("/osservatori")
     await user.should_see("Nessun sito in archivio")
     await user.should_see("mai riallineato")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_oggetto_mostra_l_effemeride(user: User, catalogo_minimo):
+    """Cerere dal catalogo di prova: la pagina deve calcolare, non solo cercare."""
+    await user.open("/oggetto?desig=1")
+    await user.should_see("Ceres")
+    await user.should_see("Tj =")
+
+    righe = [r for t in user.find(ui.table).elements for r in t.rows]
+    assert len(righe) == 31, "trenta giorni più il primo"
+    prima = righe[0]
+    assert prima["ra"].endswith("s") and "h" in prima["ra"]
+    assert float(prima["v"]) < 15, "Cerere non può essere più debole di V 15"
+    assert 0.5 < float(prima["delta"]) < 5.0
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_oggetto_suggerisce_quando_non_trova(user: User, catalogo_minimo):
+    await user.open("/oggetto?desig=Cer")
+    await user.should_see("Forse cercavi")
+    await user.should_see("Ceres")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_una_cometa_arriva_con_i_suoi_avvisi(user: User, catalogo_minimo):
+    """La magnitudine cometaria non si mostra mai senza la sua incertezza."""
+    await user.open("/oggetto?desig=C/1995 O1")
+    await user.should_see("Hale-Bopp")
+    await user.should_see("è un ordinamento, non una previsione")

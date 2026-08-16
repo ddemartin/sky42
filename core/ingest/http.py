@@ -51,14 +51,18 @@ def last_version(source: str) -> dict | None:
         conn.close()
 
 
-def fetch(source: str, url: str, filename: str, force: bool = False) -> Download:
+def fetch(source: str, url: str, filename: str, force: bool = False,
+          dest_dir: Path | None = None) -> Download:
     """Scarica `url` in data/catalogs/`filename` se è cambiato.
 
     Con `force=True` scarica comunque (serve dopo un import fallito a metà: il
-    file locale c'è ma il database no).
+    file locale c'è ma il database no). `dest_dir` serve a chi non è un
+    catalogo — le effemeridi planetarie vanno in data/ephem — e passa comunque
+    di qui: il download condizionato, la scrittura atomica e la riga in
+    `external_call` valgono per tutto ciò che entra dall'esterno.
     """
     config.ensure_dirs()
-    dest = config.CATALOG_DIR / filename
+    dest = (dest_dir or config.CATALOG_DIR) / filename
     prev = last_version(source)
 
     headers = {"User-Agent": config.USER_AGENT}

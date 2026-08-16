@@ -87,9 +87,16 @@ il telescopio si passa da Horizons.
 Δ⃗ = r⃗_ogg - r⃗_terra
 ```
 
-con la posizione della Terra da DE440s (Skyfield). **Tempo luce**: si ricalcola
-la posizione dell'oggetto a `t - Δ/c` con `c = 173.1446 AU/giorno`. Una
-iterazione basta (residuo < 0.1" per Δ < 5 AU).
+con la posizione della Terra da DE440s (Skyfield), **eliocentrica** come i
+nostri elementi: mescolare origine baricentrica ed eliocentrica sposta tutto di
+~0.005 AU. **Tempo luce**: si ricalcola la posizione dell'oggetto a `t - Δ/c`
+con `c = 173.1446 AU/giorno`. Una iterazione basta (residuo < 0.1" per Δ < 5
+AU); toglierla del tutto sposta Faetonte di 1.9", misurato.
+
+Il risultato è **astrometrico**: corretto per tempo luce, senza aberrazione
+annua né rifrazione — la quantità 1 di Horizons e la convenzione
+dell'astrometria MPC. L'aberrazione serve a puntare, e per puntare si passa da
+Horizons.
 
 Angolo di fase, con R distanza eliocentrica dell'osservatore:
 
@@ -128,8 +135,13 @@ mostrato come se fosse buono.
 m1 = M1 + 5 log₁₀(Δ) + K1 log₁₀(r)
 ```
 
-Con `K1 = 10` (cioè 4·2.5) quando manca. **Questa formula sbaglia
-regolarmente di 2-3 magnitudini** ed è un ordinamento, non una previsione:
+dove `K1 = 2.5·k1` e `k1` è il parametro **dell'MPC** (colonna `orbit.k1`,
+tipicamente 4). Attenzione: JPL chiama `k1` il coefficiente già moltiplicato per
+2.5, cioè 10 dove l'MPC scrive 4. Scambiare le due convenzioni vale 2.4
+magnitudini su una cometa a r = 2 AU, in silenzio. Con `k1 = 4` quando manca.
+
+**Questa formula sbaglia regolarmente di 2-3 magnitudini** ed è un ordinamento,
+non una previsione:
 l'interfaccia la mostra sempre con la sua incertezza dichiarata, e le comete si
 ordinano per geometria (r, Δ, elongazione, trend) prima che per magnitudine.
 Le due fotometrie non si mescolano mai: un oggetto con `kind='comet'` non usa

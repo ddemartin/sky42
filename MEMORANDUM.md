@@ -1048,6 +1048,108 @@ di focale sono 36/4540 rad = 27,3′, e il modulo dà 27,27′ × 18,19′ con
 
 ---
 
+## 2026-08-16 — il positioner: astrometrico, e con due convenzioni da non confondere
+
+`core/orbits/positioner.py` è il contratto: `positions(body, jd)` restituisce
+RA, Dec, Δ, r, V, elongazione, fase e moto, e chi sta a valle non sa quale
+modello li ha prodotti. Sotto ci sono `core/orbits/ephemeris.py` (l'unico
+modulo che apre DE440s) e `core/orbits/photometry.py`.
+
+**Si restituisce la posizione astrometrica, non quella apparente.** Corretta
+per tempo luce, senza aberrazione annua né rifrazione: è la quantità 1 di
+Horizons ed è la convenzione dell'astrometria MPC. L'aberrazione (fino a 20″)
+serve a puntare, e puntare non è il compito di sky42: per quello si passa da
+Horizons sulla shortlist. Conseguenza misurata: i *tassi* di Horizons sono del
+posto apparente e differiscono dai nostri di ~0.1″/ora — 0.002″ su una posa da
+120 s, cioè niente per il trailing, che è l'unica cosa per cui il moto serve.
+La tolleranza del test sul moto è 0.2″/ora **per questa ragione**, non per
+debolezza del calcolo.
+
+**Il moto si calcola per differenze finite su ±30 minuti**, dalla stessa
+funzione di posizione (docs/modelli.md §3). Costa due valutazioni in più, e in
+cambio vale identico per asteroidi, comete, iperboliche e per qualunque
+positioner futuro: nessuno dovrà derivare a mano una nuova espressione il
+giorno che cambia il modello. Con `with_motion=False` lo screening può
+saltarlo dove non serve.
+
+**Una sola iterazione di tempo luce.** Il residuo è sotto 0.1″ per Δ < 5 AU e
+la correzione è quadratica nel piccolo spostamento. Misurato su Faetonte:
+togliere del tutto il tempo luce sposta la posizione di **1.93″**, cioè quaranta
+volte la tolleranza del test — c'è un test apposta perché fra un anno sembrerà
+un dettaglio eliminabile.
+
+**`k1` è due parametri diversi con lo stesso nome, e vale 2.5 magnitudini.**
+MPC pubblica in CometEls il *k* (nei nostri dati va da 2 a 16, media 4.3); JPL
+pubblica il coefficiente già moltiplicato per 2.5. La formula qui è
+`m1 = M1 + 5log₁₀Δ + 2.5·k1·log₁₀r` con il k1 **dell'MPC**, che è quello che
+sta in `orbit.k1`. Verificato su C/2023 A3: con i parametri di JPL (M1 = 8.9,
+k1 = 5.5) e la conversione ÷2.5 la nostra formula dà 12.714 contro i 12.714 di
+Horizons; senza conversione sbaglierebbe di 2.4 mag. Il test tiene ferma la
+conversione proprio perché è il genere di «semplificazione» che sembra
+innocua.
+
+**DE440s passa da `core/ingest/http.py` come ogni altro dato esterno**, con
+ETag, scrittura atomica e riga in `external_call`. Skyfield saprebbe scaricarlo
+da sé, ma allora l'unico modulo che parla con l'esterno non sarebbe più uno
+solo, e «quale kernel stiamo usando» non avrebbe una risposta nel database.
+Sta in `data/ephem/`, ha una variabile d'ambiente sua (`SKY42_EPHEM_DIR`)
+perché è **l'unico dato scaricato che i test riusano**: 32 MB immutabili e
+uguali per tutti, che non ha senso riscaricare per ogni cartella temporanea.
+
+**Residui misurati contro Horizons** (elementi osculatori e effemeride alla
+stessa epoca, `TIME_TYPE=TT`, tre oggetti sui due rami del solutore):
+
+| | Cerere | Faetonte | C/2023 A3 |
+|---|---|---|---|
+| posizione | 0.004″ | 0.008″ | 0.008″ |
+| r, Δ | 1.6e-7 AU | 1.6e-8 AU | 8.7e-8 AU |
+| V | 0.000 | 0.000 | 0.000 |
+| elongazione, fase | < 0.008° | < 0.008° | < 0.004° |
+
+La tolleranza dichiarata in posizione è 0.05″ e non 0.01″ per una ragione
+precisa: i nostri elementi sono eclittici J2000, DE440s è ICRF, e fra i due c'è
+il *frame bias* (~0.02″). Correggerlo sarebbe una rotazione in più per una
+quantità che sta due ordini di grandezza sotto la CEU degli oggetti che ci
+interessano.
+
+---
+
+## 2026-08-16 — i nostri JD erano UTC, gli elementi sono TT: 69 secondi
+
+Trovato provando il positioner sul catalogo vero: `timeutil.now_jd()`
+restituiva un JD sulla scala **UTC**, mentre le epoche di MPCORB e ASTORB — e
+tutto il calcolo orbitale — stanno in TT/TDB. Fra le due ci sono
+**69.184 secondi** (32.184 + 37 secondi intercalari), e nessuno se ne accorgeva
+perché il numero è lo stesso a meno di 8e-4 giorni.
+
+Quanto costa: su Faetonte in avvicinamento, che si muove a 4″/minuto, sono
+**4.6 arcosecondi** — cento volte la tolleranza con cui abbiamo appena
+verificato il positioner contro Horizons, e abbastanza da mancare un oggetto in
+un campo stretto. Sulla fascia principale (0.5″/minuto) sarebbero 0.6″:
+invisibile, che è esattamente il modo in cui questi errori sopravvivono.
+
+Ora `timeutil` espone `now_jd_tdb()`, `jd_tdb_from_utc()` e `jd_utc_from_tdb()`,
+e la conversione avviene **solo lì** (è già la regola per quel modulo). Le
+griglie di calcolo sono in TDB, le etichette in interfaccia tornano in UTC.
+
+La costante è scritta a mano e non presa da una libreria: `timeutil` non deve
+dipendere da un pacchetto di effemeridi per dire che ora è. Il rischio — un
+secondo intercalare annunciato dall'IERS e nessuno che se ne accorge — è coperto
+da un test che confronta la costante con la tabella di Skyfield, che in casa c'è
+già. Se cambia, il test lo dice.
+
+**TDB − TT** oscilla di ±1.7 ms e resta ignorato di proposito: un JD moderno ha
+~20 µs di risoluzione in doppia precisione, quindi inseguire i millisecondi
+significherebbe misurare il float e non il cielo.
+
+**Verifica di tutta la catena, sul catalogo vero** (ingest MPCORB → orbita →
+positioner), (3200) Faetonte oggi contro Horizons, con elementi di epoca
+2026-06: **0.30″** in posizione, 8e-6 AU in Δ, 0.000 mag in V. È anche il primo
+dato della domanda aperta n. 2: due mesi di propagazione a due corpi su un NEO
+costano tre decimi di arcosecondo.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1057,7 +1159,11 @@ Si chiudono con numeri misurati, non con previsioni.
    Hilda e oggetti distanti (voce sopra). Con H < 18 restano 29.098 prima
    dell'esclusione. Sono migliaia, non centinaia di migliaia: lo screening può
    permettersi una griglia fitta e due giri al giorno.
-2. **Quanto sbaglia davvero la propagazione a due corpi?** Residui contro
+2. **Quanto sbaglia davvero la propagazione a due corpi?** **Primo dato,
+   2026-08-16:** (3200) Faetonte, elementi MPCORB di epoca 2026-06 propagati a
+   oggi (~2 mesi), contro Horizons: **0.30″** in posizione e **0.000 mag** in V.
+   Un punto solo non è una risposta — serve il campione stratificato qui sotto —
+   ma dice che l'ordine di grandezza è quello sperato. Residui contro
    Horizons a 1, 6, 12, 24 mesi, in posizione e in magnitudine, su un campione
    di 50 oggetti stratificato per classe orbitale. Se in magnitudine si resta
    sotto 0.3 mag, l'architettura regge come progettata; sopra, va rivista.

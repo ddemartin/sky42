@@ -92,6 +92,39 @@ def cmd_siti(args) -> None:
                   f"{'' if s['active'] else '  [dismesso]'}")
 
 
+def cmd_effemeride(args) -> None:
+    from gui.layout import fmt_dec_dms, fmt_ra_hms
+    from services import ephemeris_service as eph
+
+    dati = eph.ephemeris(args.oggetto, days=args.giorni, step_days=args.passo)
+    if dati is None:
+        print(f"«{args.oggetto}» non è in catalogo. Forse:")
+        for t in eph.search(args.oggetto, limit=10):
+            print(f"  {t['display_name']}")
+        raise SystemExit(1)
+
+    t = dati["target"]
+    print(f"{t['display_name']}  [{t['kind']}"
+          + (f", {t['orbit_class']}" if t["orbit_class"] else "") + "]")
+    # `a` e Tj non esistono per le iperboliche, e `—` è la risposta giusta:
+    # riempirli con uno zero racconterebbe un'orbita che non c'è.
+    from gui.layout import fmt_num
+
+    print(f"  a={fmt_num(t['a_au'], 4)} e={fmt_num(t['e'], 4)} "
+          f"i={fmt_num(t['i_deg'], 3)}°  q={fmt_num(t['q_derived_au'], 4)} AU  "
+          f"Tj={fmt_num(t['tisserand_j'], 3)}")
+    for a in dati["avvisi"]:
+        print(f"  ! {a}")
+    print(f"\n{'data (UTC)':<17}{'RA':>15}{'Dec':>16}{'V':>7}{'Δ (AU)':>10}"
+          f"{'r (AU)':>9}{'elong':>8}{'fase':>7}{'\"/min':>8}")
+    for r in dati["rows"]:
+        v = "  —  " if r["v_mag"] is None else f"{r['v_mag']:5.1f}"
+        print(f"{r['data']:<17}{fmt_ra_hms(r['ra_deg']):>15}{fmt_dec_dms(r['dec_deg']):>16}"
+              f"{v:>7}{r['delta_au']:>10.4f}{r['r_au']:>9.4f}"
+              f"{r['elong_deg']:>8.1f}{r['phase_deg']:>7.1f}"
+              f"{r['motion_arcsec_min']:>8.2f}")
+
+
 def main() -> None:
     setup_file_logging()
     init_db()
@@ -113,6 +146,12 @@ def main() -> None:
     pl.add_argument("--solo-lettura", action="store_true", dest="solo_lettura",
                     help="mostra soltanto, senza riallineare")
     pl.set_defaults(func=cmd_siti)
+
+    pe = sub.add_parser("effemeride", help="effemeride di un oggetto, dal catalogo locale")
+    pe.add_argument("oggetto", help="designazione, nome o numero: '1', 'Ceres', 'C/2023 A3'")
+    pe.add_argument("--giorni", type=int, default=14)
+    pe.add_argument("--passo", type=float, default=1.0, help="giorni fra due righe")
+    pe.set_defaults(func=cmd_effemeride)
 
     args = p.parse_args()
     args.func(args)

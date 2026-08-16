@@ -35,6 +35,7 @@ from services.scheduler import scheduler  # noqa: E402
 import gui.pages.home  # noqa: E402,F401
 import gui.pages.catalogo  # noqa: E402,F401
 import gui.pages.osservatori  # noqa: E402,F401
+import gui.pages.oggetto  # noqa: E402,F401
 import gui.pages.pianificatore  # noqa: E402,F401
 import gui.health  # noqa: E402,F401  registra GET /health sul FastAPI di NiceGUI
 

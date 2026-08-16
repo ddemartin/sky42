@@ -13,6 +13,8 @@ from core.config import APP_NAME
 FUNCTIONS = [
     {"key": "catalogo", "title": "Catalogo", "icon": "storage", "route": "/catalogo",
      "desc": "Stato dei cataloghi orbitali: quanti oggetti, da quando, e la popolazione Tj < 3."},
+    {"key": "oggetto", "title": "Oggetto", "icon": "my_location", "route": "/oggetto",
+     "desc": "Effemeride di un oggetto del catalogo: posizione, distanza, magnitudine, moto."},
     {"key": "tonight", "title": "Stanotte", "icon": "nights_stay", "route": None,
      "desc": "Cosa osservare stanotte, da quale sito e in quale finestra."},
     {"key": "radar", "title": "Returning radar", "icon": "radar", "route": None,
@@ -52,6 +54,29 @@ def fmt_num(x, dec: int = 2) -> str:
 
 def fmt_pct(x, dec: int = 1) -> str:
     return "—" if x is None else f"{float(x):.{dec}f}%"
+
+
+def fmt_ra_hms(deg) -> str:
+    """RA in ore, minuti, secondi: è così che si punta un telescopio."""
+    if deg is None:
+        return "—"
+    ore = (float(deg) % 360.0) / 15.0
+    h = int(ore)
+    m = int((ore - h) * 60)
+    s = (ore - h - m / 60) * 3600
+    return f"{h:02d}h {m:02d}m {s:05.2f}s"
+
+
+def fmt_dec_dms(deg) -> str:
+    if deg is None:
+        return "—"
+    d = float(deg)
+    segno = "-" if d < 0 else "+"
+    d = abs(d)
+    g = int(d)
+    m = int((d - g) * 60)
+    s = (d - g - m / 60) * 3600
+    return f"{segno}{g:02d}° {m:02d}' {s:04.1f}\""
 
 
 def fmt_age(days) -> str:

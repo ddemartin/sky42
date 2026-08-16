@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("SKY42_DATA_DIR", ROOT / "data")).resolve()
 DB_PATH = DATA_DIR / "sky42.db"
 CATALOG_DIR = DATA_DIR / "catalogs"   # i file scaricati, con il loro hash
-EPHEM_DIR = DATA_DIR / "ephem"        # DE440s e simili
+# DE440s e simili. Ha una variabile sua perché è l'unico dato scaricato che i
+# test possono **riusare**: 32 MB immutabili, uguali per tutti, che non ha senso
+# riscaricare per ogni cartella temporanea (conftest.py lo punta a quello vero).
+EPHEM_DIR = Path(os.environ.get("SKY42_EPHEM_DIR", DATA_DIR / "ephem")).resolve()
 CACHE_DIR = DATA_DIR / "cache"        # risposte JPL
 LOG_DIR = DATA_DIR / "logs"
 
@@ -55,6 +58,12 @@ CHUNK_SIZE = int(os.environ.get("SKY42_CHUNK_SIZE", 20_000))
 MPCORB_URL = "https://www.minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 ASTORB_URL = "https://ftp.lowell.edu/pub/elgb/astorb.dat.gz"
 COMETELS_URL = "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
+
+# Effemeridi planetarie. DE440s ("small"): 1849-2150 in 32 MB, contro i 114 MB
+# di DE440 che copre 1550-2650. Lo screening guarda 15 anni indietro e 2 avanti:
+# tre secoli di margine bastano, e il file entra nel backup di un Mac mini.
+DE440S_URL = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440s.bsp"
+DE440S_FILE = EPHEM_DIR / "de440s.bsp"
 
 # L'MPC chiede di identificarsi. Un contatto vero evita di essere bloccati in
 # silenzio, ed è educazione verso un servizio pubblico e gratuito.

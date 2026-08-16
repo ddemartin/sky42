@@ -20,7 +20,37 @@ def now_iso() -> str:
 
 
 def now_jd() -> float:
+    """JD sulla scala **UTC**. Per i calcoli orbitali serve `now_jd_tdb()`."""
     return jd_from_datetime(datetime.now(timezone.utc))
+
+
+# TT − UTC = 32.184 s + secondi intercalari. I secondi intercalari sono 37 dal
+# 2017-01-01 e l'IERS non ne ha annunciati altri; se ne arrivasse uno, questo
+# numero va aggiornato — e c'è un test che lo confronta con la tabella di
+# Skyfield, così la scoperta non è affidata alla memoria di nessuno.
+#
+# TDB − TT oscilla di ±1.7 ms per l'orbita terrestre: sotto il microarcosecondo
+# di posizione, quindi TDB e TT qui sono la stessa cosa.
+TT_MINUS_UTC_S = 69.184
+
+
+def jd_tdb_from_utc(jd_utc: float) -> float:
+    """Da JD UTC a JD TDB, che è la scala in cui vivono gli elementi orbitali.
+
+    Ignorarlo costa 69 secondi, che su un NEO veloce come Faetonte (4″/minuto
+    all'avvicinamento) sono **quasi 5 arcosecondi** di posizione: cento volte la
+    tolleranza con cui verifichiamo il positioner contro Horizons.
+    """
+    return jd_utc + TT_MINUS_UTC_S / SECONDS_PER_DAY
+
+
+def jd_utc_from_tdb(jd_tdb: float) -> float:
+    return jd_tdb - TT_MINUS_UTC_S / SECONDS_PER_DAY
+
+
+def now_jd_tdb() -> float:
+    """L'istante presente nella scala dei calcoli. È questo che si passa al positioner."""
+    return jd_tdb_from_utc(now_jd())
 
 
 def jd_from_datetime(dt: datetime) -> float:

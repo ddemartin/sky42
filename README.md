@@ -62,7 +62,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | import CometEls | ✅ | 954 comete, con le iperboliche trattate come tali |
 | Tisserand e derivati orbitali | ✅ | calcolati all'import, indicizzati |
 | pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
-| riga di comando (`cli.py ingest`, `stato`, `siti`) | ✅ | gli stessi moduli dell'interfaccia |
+| riga di comando (`ingest`, `stato`, `siti`, `effemeride`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
 | recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
@@ -70,6 +70,10 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
 | pagina Osservatori | ✅ | `/osservatori`: hardware, derivati ottici e limiti, con riallineamento dai file |
 | solutore di Keplero vettoriale | ✅ | `core/orbits/kepler.py`: 14.000 orbite × 730 giorni in 2,4 s; verità contro Horizons su quattro coniche |
+| fotometria H-G e cometaria | ✅ | `core/orbits/photometry.py`: V di Cerere e Faetonte a 0.00 mag da Horizons |
+| positioner: RA/Dec/Δ/r/V/moto | ✅ | `core/orbits/positioner.py`: astrometrico geocentrico, tempo luce, residuo 0.008″ |
+| effemeridi planetarie DE440s | ✅ | 32 MB scaricati una volta in `data/ephem/`, Skyfield li legge |
+| pagina Oggetto (effemeride) | ✅ | `/oggetto`: scheda, effemeride e i suoi avvisi. Nessuna chiamata a JPL |
 | screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
 | notte, Sole, Luna, crepuscoli | ⏳ M1 | Skyfield + DE440s, per sito |
 | brillanza del cielo con Luna | ⏳ M1 | Krisciunas & Schaefer 1991 |
@@ -125,6 +129,7 @@ Il primo riempimento del catalogo (circa 280 MB da scaricare, 100 s di CPU):
 .venv/bin/python cli.py ingest all     # oppure il pulsante nella pagina Catalogo
 .venv/bin/python cli.py stato          # cosa c'è nel database
 .venv/bin/python cli.py siti           # riallinea l'hardware dagli YAML e lo mostra
+.venv/bin/python cli.py effemeride 3200 --giorni 30
 ```
 
 Test: `.venv/bin/python -m pytest` — girano su una cartella dati temporanea,
