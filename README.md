@@ -68,7 +68,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
 | reconcile dei siti (sito/telescopio/camera/setup) | ⏳ M1 | scala e campo derivati dalla focale, mai scritti a mano |
-| solutore di Keplero vettoriale | ⏳ M1 | numpy, tutti gli oggetti insieme; test di verità contro Horizons |
+| solutore di Keplero vettoriale | ✅ | `core/orbits/kepler.py`: 14.000 orbite × 730 giorni in 2,4 s; verità contro Horizons su quattro coniche |
 | screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
 | notte, Sole, Luna, crepuscoli | ⏳ M1 | Skyfield + DE440s, per sito |
 | brillanza del cielo con Luna | ⏳ M1 | Krisciunas & Schaefer 1991 |

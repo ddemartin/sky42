@@ -57,6 +57,24 @@ universali (formulazione di Stumpff), con `q` e `tp` invece di `a` e `M`. Il
 ramo si sceglie sull'eccentricità, non sul tipo di oggetto: un asteroide con
 e = 0.99 va nello stesso ramo di una cometa.
 
+L'equazione universale è contata dal perielio, dove lo stato iniziale è noto
+esatto (`r₀ = q P̂`, `v₀ = sqrt(GM(1+e)/q) Q̂`):
+
+```
+√GM (t - tp) = q x + e x³ S(z)        z = α x²,  α = (1 - e)/q
+r            = q + e x² C(z)          ( = dF/dx )
+f = 1 - (x²/q) C(z)                   g    = Δt - (x³/√GM) S(z)
+ḟ = √GM x (z S(z) - 1)/(r q)          ġ    = 1 - (x²/r) C(z)
+```
+
+α > 0 ellisse, α = 0 parabola, α < 0 iperbole: un solo codice. F(x) è dispari e
+crescente, quindi Newton lavora dentro un intervallo trovato per raddoppio e
+bisseca quando il passo ne esce — senza rete, un'iperbolica lontana dal
+perielio diverge. Le funzioni di Stumpff C e S si valutano in forma chiusa e,
+per `|z| < 0.1` dove la forma chiusa si annulla per cancellazione, con lo
+sviluppo in serie fino a `z⁴` (il raccordo fra i due rami vale 2e-14; con un
+termine in meno era 3e-11).
+
 **Perturbazioni: nessuna.** Vedi il memorandum del 2026-08-15 e il job di
 validazione: l'errore atteso è lungo l'orbita, cresce con il tempo dall'epoca,
 e su V è di ordine centesimi di magnitudine — irrilevante per distinguere

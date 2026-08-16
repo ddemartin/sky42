@@ -932,6 +932,65 @@ in cui Docker desse fastidio.
 
 ---
 
+## 2026-08-16 — il solutore: un ramo solo non basta, e la soglia è 0.98
+
+`core/orbits/kepler.py` ha **due rami, scelti sull'eccentricità e non sul tipo
+di oggetto**. Sotto e = 0.98 si risolve M = E − e sin E con Newton vettoriale;
+sopra — e per tutte le paraboliche e iperboliche — si passa alle variabili
+universali di Stumpff, che non usano `a` né M ma solo `q` e `tp` e propagano
+dal perielio con le f e g. Il criterio è quello di `docs/modelli.md`: un
+asteroide con e = 0.99 ha lo stesso problema numerico di una cometa, e
+scegliere il ramo su `kind` invece che su `e` significherebbe mandare
+l'asteroide nel ramo che non tiene.
+
+**L'alternativa scartata è il ramo unico universale.** Sarebbe stato meno
+codice, e sulla carta è sufficiente per tutte le coniche. Costa però una
+radice da cercare numericamente anche per la fascia principale, dove Newton su
+E converge in 4-5 iterazioni da un innesco eccellente: sui 14.000 oggetti dello
+screening × 730 epoche, cioè dieci milioni di stati, la differenza non è
+estetica. I due rami sono tenuti onesti da un test che alza artificialmente la
+soglia a 0 e verifica che diano lo stesso punto entro 1e-10 AU.
+
+**Newton universale è incastrato in un intervallo.** F(x) = q x + e x³ S(αx²)
+è dispari e strettamente crescente (dF/dx = r > 0), quindi si parte da un
+intervallo trovato per raddoppio e ogni passo di Newton che ne esce viene
+sostituito da una bisezione. Newton nudo, su 'Oumuamua a sette anni dal
+perielio, scappa. Con la rete la convergenza è garantita e non c'è nessun caso
+patologico da temere quando arriverà l'oggetto che non abbiamo previsto.
+L'innesco è la soluzione esatta del caso parabolico (una cubica in forma
+chiusa): per le quasi-paraboliche è già quasi la risposta.
+
+**Le funzioni di Stumpff si sviluppano in serie fino a z⁴, non a z³.** Sotto
+|z| = 0.1 la forma chiusa (1 − cos√z)/z si annulla per cancellazione e si passa
+alla serie; con i termini fino a z³ il raccordo fra i due rami ha un gradino di
+**2,8e-11**, misurato, che con il termine in z⁴ scende a **2,1e-14**, cioè
+sparisce nell'aritmetica in doppia precisione. Un termine in più costa una
+moltiplicazione e toglie una discontinuità dalla propagazione delle comete, che
+è esattamente il posto dove i gradini si notano.
+
+**La verità è presa da Horizons a elementi osculatori.** Il test scarica —
+una volta, e i numeri sono costanti nel file di test con la data — elementi e
+vettore di stato **alla stessa epoca**, per quattro oggetti che coprono i due
+rami e le tre coniche: Cerere (e = 0.079), Faetonte (0.890), C/2023 A3
+(1.000110), 1I/'Oumuamua (1.204). Alla loro epoca gli elementi osculatori
+*definiscono* lo stato, quindi il confronto misura il solutore e non le
+perturbazioni: la tolleranza dichiarata è **1e-8 AU** all'epoca (≈ 1,5 km, il
+livello a cui Horizons arrotonda gli elementi che pubblica) e **1e-6 AU** dopo
+un giorno di propagazione, dove le perturbazioni vere cominciano a entrare.
+Quanto sbagli la propagazione a due mesi o due anni resta la domanda aperta
+n. 2 e si risponde con un lavoro di validazione, non con un test unitario:
+confonderle avrebbe prodotto un test che fallisce quando cambia la fisica
+invece di quando si rompe il codice.
+
+**Misura di costo, che chiude a metà la domanda aperta n. 3:** 14.000 orbite ×
+730 epoche giornaliere = 10,2 milioni di stati in **2,4 s** sul portatile, un
+core solo (`OMP_NUM_THREADS=1`). La propagazione non è il collo di bottiglia
+dello screening. Attenzione però alla **memoria**: quella griglia in una volta
+sola sono ~490 MB fra posizioni e velocità, quindi lo screening dovrà lavorare
+a blocchi di oggetti — non per velocità, ma perché il Mac mini fa girare altro.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -947,7 +1006,10 @@ Si chiudono con numeri misurati, non con previsioni.
    sotto 0.3 mag, l'architettura regge come progettata; sopra, va rivista.
 3. **Quanto ci mette lo screening completo sul Mac mini?** Se è sotto i cinque
    minuti si può rifare ogni giorno su tutto; se è un'ora, va diviso in una
-   popolazione monitorata e un giro completo settimanale.
+   popolazione monitorata e un giro completo settimanale. **Metà risposta il
+   2026-08-16:** la sola propagazione dei 14.000 su 730 epoche costa 2,4 s
+   (voce sopra). Manca il resto della catena — Terra da Skyfield, tempo luce,
+   fotometria, finestre — che è dove il tempo andrà davvero.
 4. **Il coefficiente 0.55 mag/grado del crepuscolo.** Va misurato con
    `setup_calibration` e sostituito. Oggi è una stima.
 5. **`vlim_ref` dichiarato contro misurato.** Di quanto sbaglia la stima
