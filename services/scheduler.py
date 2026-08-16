@@ -50,12 +50,17 @@ class JobSpec:
     heavy: bool = True              # in un processo a parte
     description: str = ""
     catchup_after_hours: float | None = None   # all'avvio, se i dati sono più vecchi
+    # Come si misura l'età del *risultato* di questo job. Senza, si guarda
+    # l'età dei dati della sorgente omonima — che vale per i sync e per nessun
+    # altro: `night_plan` non ha una sorgente, ha una tabella che riempie.
+    freshness: Callable[[], float | None] | None = None
 
 
 def _jobs() -> list[JobSpec]:
     # Import qui e non in testa: il modulo viene caricato anche dai test, e
     # importare i servizi in testa creerebbe un ciclo con `jobs.py`.
-    from services import backup_service, ingest_service, maintenance_service
+    from services import (backup_service, ingest_service, maintenance_service,
+                          night_service)
 
     return [
         JobSpec("mpcorb_sync", "MPCORB extended", ingest_service.sync_mpcorb,
@@ -67,6 +72,14 @@ def _jobs() -> list[JobSpec]:
         JobSpec("cometels_sync", "CometEls", ingest_service.sync_cometels,
                 hours=6, minute=35, catchup_after_hours=12,
                 description="le comete"),
+        # Ogni sei ore e non una volta al giorno: il calcolo costa
+        # millisecondi, e così la finestra di due settimane resta piena anche se
+        # il Mac mini è stato spento per un giorno. `catchup_after_hours` la
+        # rifà all'avvio se l'ultima è vecchia.
+        JobSpec("night_plan", "Piano delle notti", night_service.run_night_plan,
+                hours=6, minute=50, heavy=False, catchup_after_hours=12,
+                freshness=night_service.plan_age_hours,
+                description="crepuscoli e Luna per ogni sito attivo, due settimane avanti"),
         JobSpec("backup", "Backup dati non rigenerabili", backup_service.run_backup,
                 cron={"hour": 3}, minute=0, heavy=False,
                 description="candidati NEOCP, transizioni, osservazioni, watchlist"),
@@ -157,8 +170,10 @@ class Scheduler:
         for spec in self.specs.values():
             if spec.catchup_after_hours is None or not self.is_enabled(spec.name):
                 continue
-            ts = (state.get(_source_of(spec.name)) or {}).get("ts")
-            age_h = _age_hours(ts)
+            if spec.freshness is not None:
+                age_h = spec.freshness()
+            else:
+                age_h = _age_hours((state.get(_source_of(spec.name)) or {}).get("ts"))
             if age_h is None or age_h > spec.catchup_after_hours:
                 when = datetime.now(timezone.utc) + timedelta(minutes=delay)
                 log.info("recupero all'avvio: %s (dati vecchi di %s)", spec.name,

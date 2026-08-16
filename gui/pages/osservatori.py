@@ -14,6 +14,7 @@ from nicegui import run, ui
 
 from core.sites.reconcile import SiteConfigError
 from gui.layout import cols, fmt_age, fmt_num, header, table
+from services import night_service as notti
 from services import sites_service as sites
 
 log = logging.getLogger("sky42.gui.osservatori")
@@ -32,6 +33,61 @@ def _coord(lat: float, lon: float) -> str:
     ns = "N" if lat >= 0 else "S"
     ew = "E" if lon >= 0 else "W"
     return f"{abs(lat):.4f}° {ns}, {abs(lon):.4f}° {ew}"
+
+
+def _ora_locale(jd, timezone: str) -> str:
+    """JD → ora locale del sito. È l'unico posto in cui l'ora locale esiste.
+
+    Un tramonto scritto in UTC non dice niente a chi deve decidere se stasera
+    vale la pena: le 22:18 UTC sono le 18:18 in Cile.
+    """
+    if jd is None:
+        return "—"
+    from zoneinfo import ZoneInfo
+
+    from core.timeutil import datetime_from_jd, jd_utc_from_tdb
+
+    return datetime_from_jd(jd_utc_from_tdb(jd)).astimezone(
+        ZoneInfo(timezone)).strftime("%H:%M")
+
+
+def _notti(sito: dict) -> None:
+    """Le prossime notti del sito: buio disponibile e quanto disturba la Luna."""
+    righe = notti.upcoming(sito["id"], limit=10)
+    ui.label("Prossime notti").classes("font-bold mt-2")
+    if not righe:
+        ui.label(
+            "Non ancora calcolate: le scrive il lavoro «Piano delle notti», "
+            "che gira ogni sei ore e all'avvio."
+        ).classes("text-xs opacity-70")
+        return
+
+    tz = sito["timezone"]
+    table(
+        cols(("data", "notte"), ("tramonto", "tramonto", "right"),
+             ("buio", "buio da", "right"), ("fine", "buio fino a", "right"),
+             ("alba", "alba", "right"), ("ore", "ore di buio", "right"),
+             ("luna", "Luna", "right"), ("luna_su", "Luna in cielo")),
+        [{
+            "data": r["night_date"],
+            "tramonto": _ora_locale(r["sunset_jd"], tz),
+            "buio": _ora_locale(r["twilight_end_jd"], tz),
+            "fine": _ora_locale(r["twilight_start_jd"], tz),
+            "alba": _ora_locale(r["sunrise_jd"], tz),
+            "ore": fmt_num(r["dark_hours"], 1),
+            # Frazione illuminata e altezza massima insieme: una Luna piena che
+            # resta sotto l'orizzonte non disturba nessuno, e il solo numero
+            # della fase farebbe scartare una notte buona.
+            "luna": f"{r['moon_illum'] * 100:.0f}%",
+            "luna_su": (f"max {fmt_num(r['moon_max_alt_deg'], 0)}° · "
+                        f"sorge {_ora_locale(r['moon_rise_jd'], tz)}, "
+                        f"tramonta {_ora_locale(r['moon_set_jd'], tz)}"),
+        } for r in righe],
+    )
+    ui.label(
+        "Orari in ora locale del sito. «Buio» è il crepuscolo astronomico "
+        "(Sole a −18°); quanto crepuscolo accettare lo decide il setup."
+    ).classes("text-xs opacity-60")
 
 
 @ui.page("/osservatori")
@@ -148,6 +204,8 @@ def osservatori_page() -> None:
                         "riduttore, pixel e binning a ogni riallineamento."
                     ).classes("text-xs opacity-60")
 
+                    _notti(sito)
+
                     with ui.row().classes("w-full gap-6 flex-wrap items-start mt-2"):
                         with ui.column().classes("gap-1 min-w-96 grow"):
                             ui.label("Telescopi").classes("font-bold")
@@ -188,6 +246,10 @@ def osservatori_page() -> None:
         spinner.visible = True
         try:
             report = await run.io_bound(sites.run_reconcile)
+            # Se l'hardware è cambiato le notti possono essere di un sito che
+            # non c'è più — o mancare per uno nuovo. Ricalcolarle costa
+            # millisecondi e toglie una finestra di incoerenza.
+            await run.io_bound(notti.run_night_plan)
             cambiati = len(report["creati"]) + len(report["aggiornati"]) \
                 + len(report["disattivati"])
             if cambiati:

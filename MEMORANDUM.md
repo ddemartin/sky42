@@ -1052,7 +1052,7 @@ di focale sono 36/4540 rad = 27,3′, e il modulo dà 27,27′ × 18,19′ con
 
 `core/orbits/positioner.py` è il contratto: `positions(body, jd)` restituisce
 RA, Dec, Δ, r, V, elongazione, fase e moto, e chi sta a valle non sa quale
-modello li ha prodotti. Sotto ci sono `core/orbits/ephemeris.py` (l'unico
+modello li ha prodotti. Sotto ci sono `core/ephemeris.py` (l'unico
 modulo che apre DE440s) e `core/orbits/photometry.py`.
 
 **Si restituisce la posizione astrometrica, non quella apparente.** Corretta
@@ -1147,6 +1147,67 @@ positioner), (3200) Faetonte oggi contro Horizons, con elementi di epoca
 2026-06: **0.30″** in posizione, 8e-6 AU in Δ, 0.000 mag in V. È anche il primo
 dato della domanda aperta n. 2: due mesi di propagazione a due corpi su un NEO
 costano tre decimi di arcosecondo.
+
+---
+
+## 2026-08-16 — la notte comincia a mezzogiorno, e le eccezioni sono risposte
+
+`core/visibility/night.py` è il primo pezzo del visibility engine: crepuscoli,
+Luna e ore di buio per (sito × notte). Anche `core/ephemeris.py` si è spostato
+qui accanto — stava in `core/orbits/` ed era il posto sbagliato: lo usano il
+positioner **e** il visibility engine, e lasciarlo sotto `orbits/` avrebbe
+costretto `visibility/` a importare da lì, rompendo la regola 4 il primo
+giorno. Sbagliato di una cartella, corretto prima che ci si appoggiasse
+qualcosa.
+
+**Una notte è ancorata al mezzogiorno locale**, non alla mezzanotte UTC. «La
+notte del 15» comincia la sera del 15 anche se il grosso del buio cade il 16, e
+la finestra di ricerca va da mezzogiorno a mezzogiorno. Con l'ancoraggio a
+mezzanotte UTC, a Río Hurtado (UTC−4) il tramonto della notte del 15 cadrebbe
+il 16 e l'ordine degli eventi si invertirebbe. C'è un test che verifica
+soltanto che gli eventi siano in ordine crescente: sembra una banalità, ed è la
+sentinella di questo errore.
+
+**Gli eventi si distinguono dal verso, non dall'ora.** `find_discrete` dà gli
+istanti in cui si entra in una fase, e ogni fase si attraversa due volte —
+scendendo verso il buio e risalendo. Discriminarle confrontandole con la
+mezzanotte funzionerebbe a Roma e fallirebbe esattamente nei casi estremi per
+cui serve del codice: si guarda invece se la fase precedente era più chiara o
+più scura.
+
+**Il Sole che non tramonta è una risposta.** A Tromsø il 21 giugno non c'è
+tramonto e le ore di buio sono zero; il 21 dicembre non c'è alba, ma il
+crepuscolo astronomico finisce e comincia lo stesso, e le ore di buio sono
+13.5. I campi mancanti restano `None` e non zero: uno zero non si distingue da
+un calcolo andato male, un `None` sì. Le ore di buio quando mancano entrambe le
+transizioni si decidono guardando che fase è a metà finestra — zero d'estate,
+ventiquattro d'inverno polare.
+
+**`moon_max_alt_deg` si campiona fra tramonto e alba**, non su tutta la
+finestra. Nella notte del 2026-08-16 la Luna culmina a 69° — a mezzogiorno.
+Registrare quel numero significherebbe scartare una notte che era buia: quello
+che serve non è l'altezza massima della Luna, è quanto ha disturbato.
+
+**La frazione illuminata è topocentrica.** La parallasse lunare arriva a 1° e
+sposta la frazione di ~0.007 rispetto al valore geocentrico: irrilevante per
+una brillanza di cielo, decisivo per poter *confrontare* il nostro numero con
+Horizons (0.21236 contro 0.2124259). Un numero che non si può confrontare non
+si può verificare.
+
+**Verifica contro Horizons** (`CENTER='coord@399'` con le coordinate del sito,
+elevazione **airless** come Skyfield, che non applica rifrazione): agli istanti
+che chiamiamo tramonto e crepuscoli astronomici, Horizons dà −0.833132,
+−17.999720 e −18.000184. Scarto massimo **0.0003°**, che a Río Hurtado — dove
+il Sole scende di 0.2°/minuto — sono **0.1 secondi** di tempo. Per la Luna al
+tramonto: −0.79977 contro il nostro −0.8. La tolleranza dichiarata nei test è
+0.002°, sei volte il residuo misurato.
+
+Il job `night_plan` gira **ogni sei ore** e non una volta al giorno: costa
+millisecondi, e così la finestra di due settimane resta piena anche dopo un
+giorno di spegnimento. Ha portato con sé una piccola aggiunta al pianificatore:
+`JobSpec.freshness`, perché il recupero all'avvio finora misurava l'età dei
+*dati scaricati* — che vale per i sync e per nessun altro. `night_plan` non ha
+una sorgente: ha una tabella che riempie, e la sua freschezza è l'età di quella.
 
 ---
 

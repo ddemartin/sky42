@@ -22,8 +22,8 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
+from core.ephemeris import earth_equatorial, ecliptic_to_equatorial
 from core.orbits import photometry
-from core.orbits.ephemeris import earth_equatorial, ecliptic_to_equatorial
 from core.orbits.kepler import heliocentric_state
 
 # Velocità della luce in AU/giorno (IAU 2012, esatta per definizione dell'AU).

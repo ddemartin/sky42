@@ -1,8 +1,14 @@
-"""Dove stanno la Terra e il Sole. L'unico modulo che apre DE440s.
+"""Dove stanno la Terra, il Sole e la Luna. L'unico modulo che apre DE440s.
 
 Il resto del codice non sa che esiste Skyfield: chiede un array di JD e riceve
 un array di posizioni in AU, equatoriali ICRF, eliocentriche. Il giorno in cui
 DE440s diventasse DE441 o Skyfield venisse sostituito, il confine è questo file.
+
+Sta in `core/` e non in `core/orbits/` perché lo usano **due** strati che non
+devono dipendere l'uno dall'altro: il positioner, per la posizione della Terra,
+e il visibility engine, per Sole e Luna sopra un sito. Se stesse sotto
+`orbits/`, `visibility/` dovrebbe importare da lì e la regola 4 sarebbe rotta
+il primo giorno.
 
 Il kernel (32 MB) si scarica **una volta** e sta in `data/ephem/`. Passa da
 `core/ingest/http.py` come qualunque altra cosa che entra dall'esterno, così
@@ -74,6 +80,17 @@ def _load():
             _kernel = load_file(str(path))
             log.info("DE440s caricato da %s", path)
     return _kernel, _timescale
+
+
+def kernel_and_timescale():
+    """Il kernel DE440s e la scala dei tempi di Skyfield, caricati una volta sola.
+
+    È il canale per chi ha bisogno di Skyfield *come libreria* — il visibility
+    engine, che costruisce osservatori topocentrici e cerca crepuscoli — e non
+    solo di un array di posizioni. Resta comunque un solo posto che apre il
+    kernel e un solo posto che decide dove sta il file.
+    """
+    return _load()
 
 
 def _positions(target: str, jd) -> np.ndarray:

@@ -111,6 +111,9 @@ async def test_osservatori_mostra_i_derivati(user: User, db, monkeypatch, tmp_pa
     monkeypatch.setattr(config, "SITES_DIR", siti)
     sites_service.run_reconcile()
 
+    from services import night_service
+    night_service.plan_nights(3)
+
     await user.open("/osservatori")
     await user.should_see("Río Hurtado, Cile")
     await user.should_see("cielo allo zenit 21.80 mag/arcsec²")
@@ -125,6 +128,12 @@ async def test_osservatori_mostra_i_derivati(user: User, db, monkeypatch, tmp_pa
     assert setup["campo"] == "27.3 × 18.2"      # arcmin, derivato
     assert setup["f"] == "6.5"                  # 4540/700
     assert setup["vlim"].startswith("21.3 / 20.8 astr.")
+
+    # Le notti ci sono, e con gli orari in ora locale del sito: un tramonto
+    # scritto in UTC non aiuta a decidere se stasera vale la pena.
+    notte = next(r for r in righe if "night" not in r and r.get("ore"))
+    assert float(notte["ore"]) > 0
+    assert ":" in notte["tramonto"] and ":" in notte["buio"]
 
 
 @pytest.mark.module_under_test("gui.pages.home", "gui.pages.osservatori")

@@ -115,8 +115,8 @@ def test_il_tempo_luce_non_e_trascurabile():
     Serve a impedire la «semplificazione» di chi, guardando il codice fra un
     anno, decidesse che una iterazione in più non serve a niente.
     """
+    from core.ephemeris import earth_equatorial
     from core.orbits.positioner import C_AU_DAY, _radec, heliocentric_equatorial
-    from core.orbits.ephemeris import earth_equatorial
 
     c = CASI["phaethon"]
     body = Body(**c["body"])

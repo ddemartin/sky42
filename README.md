@@ -75,7 +75,8 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | effemeridi planetarie DE440s | ✅ | 32 MB scaricati una volta in `data/ephem/`, Skyfield li legge |
 | pagina Oggetto (effemeride) | ✅ | `/oggetto`: scheda, effemeride e i suoi avvisi. Nessuna chiamata a JPL |
 | screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
-| notte, Sole, Luna, crepuscoli | ⏳ M1 | Skyfield + DE440s, per sito |
+| notte, Sole, Luna, crepuscoli | ✅ | `core/visibility/night.py`: crepuscoli a 0.5 s da Horizons, poli compresi |
+| piano delle notti (job `night_plan`) | ✅ | due settimane avanti per ogni sito attivo, ogni 6 h e all'avvio |
 | brillanza del cielo con Luna | ⏳ M1 | Krisciunas & Schaefer 1991 |
 | magnitudine limite efficace scomposta | ⏳ M1 | airmass, Luna, crepuscolo, trailing, separate |
 | ricerca della finestra migliore | ⏳ M1 | campionamento a 5 min, non si assume il transito |
@@ -180,6 +181,7 @@ pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
 | `astorb_sync` | ogni 6 h | lo strato dell'incertezza |
 | `cometels_sync` | ogni 6 h | le comete |
 | `backup` | ogni giorno 03:00 UTC | le sei tabelle non rigenerabili |
+| `night_plan` | ogni 6 h | crepuscoli e Luna, due settimane avanti per sito |
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
 
 Ogni 6 ore e non a un orario fisso perché le sorgenti pubblicano a orari che si
