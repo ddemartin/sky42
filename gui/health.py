@@ -24,6 +24,11 @@ log = logging.getLogger("sky42.health")
 # significa che qualcosa non gira da almeno cinque tentativi.
 STALE_HOURS = 36
 
+# Oltre questa età **dall'ultimo tentativo** il pianificatore non sta girando.
+# Due giri mancati di fila non sono un caso: o il processo è morto, o i job
+# pesanti non partono (è successo).
+JOB_SILENT_HOURS = 13
+
 
 @app.get("/health")
 def health() -> dict:
@@ -39,6 +44,14 @@ def health() -> dict:
             ultimo = conn.execute(
                 "SELECT max(updated_at) FROM orbit WHERE source='mpcorb'"
             ).fetchone()[0]
+            # Quando ha girato l'ultimo sync, a prescindere dall'esito. È una
+            # domanda diversa da «quanto sono vecchi i dati»: se la sorgente non
+            # cambia, i dati invecchiano ed è normale; se il *lavoro* non gira
+            # da un giorno, è rotto qualcosa. Il 16 agosto 2026 il pool dei job
+            # pesanti moriva a ogni avvio e questo endpoint diceva `ok`.
+            ultimo_giro = conn.execute(
+                "SELECT max(started_at) FROM job_run WHERE job_name LIKE '%_sync'"
+            ).fetchone()[0]
         finally:
             conn.close()
     except Exception as exc:               # database irraggiungibile o corrotto
@@ -46,13 +59,18 @@ def health() -> dict:
         return {"status": "error", "errore": str(exc)}
 
     eta_h = (days_since(ultimo) or 0) * 24 if ultimo else None
+    giro_h = (days_since(ultimo_giro) or 0) * 24 if ultimo_giro else None
     stantio = eta_h is None or eta_h > STALE_HOURS
+    muto = giro_h is None or giro_h > JOB_SILENT_HOURS
 
     return {
         # 'degraded' e non 'error': il servizio risponde, sono i dati a essere
         # vecchi. Il container non va riavviato per questo — riavviarlo non
         # farebbe apparire i dati.
-        "status": "degraded" if stantio else "ok",
+        "status": "degraded" if (stantio or muto) else "ok",
         "catalogo_ore": round(eta_h, 1) if eta_h is not None else None,
+        # Da quante ore non parte un sync. Se cresce oltre 13 il pianificatore
+        # non sta girando, e lo si vede *prima* che i dati diventino vecchi.
+        "ultimo_sync_ore": round(giro_h, 1) if giro_h is not None else None,
         "sync": {r["job_name"]: r["status"] for r in row},
     }

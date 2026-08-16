@@ -1409,6 +1409,133 @@ pagina lo dice invece di ometterli.
 
 ---
 
+## 2026-08-16 (sera) — il rosso, e dove si riprende
+
+**Il colore primario diventa un rosso scuro (`#8B1A1A`).** Il celestino era
+quello di serie di NiceGUI, cioè lo stesso di stock42: con due schede aperte
+sullo stesso schermo non si distingue quale sia quale, e la barra in alto è la
+prima cosa che l'occhio usa per orientarsi. Il rosso scuro tiene il contrasto
+con il testo bianco della barra sia in tema chiaro sia in scuro, ed è l'unico
+fra le app di casa. Sta in `gui/layout.py` come `PRIMARY` e si applica in
+`header()`, non all'avvio: in NiceGUI `ui.colors` è un elemento e ogni pagina è
+un albero suo, quindi va chiamata dentro la pagina — e l'intestazione è l'unica
+cosa che tutte hanno in comune.
+
+**Dove siamo.** La catena di calcolo è chiusa da un capo all'altro: catalogo →
+Keplero → positioner → sito → notte → geometria → cielo → limite → finestra.
+Per un oggetto qualsiasi risponde in **3 ms** (effemeride) e **25 ms**
+(finestre della notte per un setup), senza mai chiamare JPL. Ogni pezzo ha il
+suo test di verità contro Horizons dove una verità esiste — 0.008″ sulle
+posizioni, 0.0003° sui crepuscoli, 0.000 mag sulla fotometria — e dove non
+esiste (brillanza del cielo, `vlim_ref`) è scritto che non esiste.
+
+**Cosa manca a M1, in ordine.**
+
+1. **`core/radar/screening.py`** — propagare i ~14.000 oggetti su 24 mesi
+   avanti e 15 anni indietro, scrivere le tracce in `screening_track` e
+   distillare `target_stats`. È il pezzo che produce *la lista*: finché non
+   c'è, tutto il resto sa rispondere solo su un oggetto che qualcuno ha già
+   nominato. La propagazione costa 2.4 s per 14.000 × 730 epoche (misurato),
+   ma la memoria dice di andare a blocchi: quella griglia intera sono ~490 MB.
+2. **`core/radar/states.py`** — stati e transizioni con l'isteresi a 0.15 mag.
+   Legge `target_stats`, non ricalcola niente.
+3. **`core/ranking/`** — feature 0-1 e pesi da `scoring_profile`, con
+   `score_json` sempre salvato accanto allo score.
+4. **La dashboard Tonight**, che a quel punto è una query e non un calcolo.
+
+**Due cose da tenere d'occhio quando si riprende.** La prima: il job che
+calcola le finestre in massa non esiste ancora, e `observation_window` oggi
+viene invocata da una pagina — quando arriverà lo screening andrà spostata in
+un job che scrive `observation_window`, senza toccare il calcolo. La seconda:
+il polling NEOCP di M2 **conviene ancora anticiparlo** se M1 si allunga, perché
+quella storia non si recupera a posteriori — la nota del 15 agosto vale
+identica una settimana dopo.
+
+---
+
+## 2026-08-16 (sera) — i job pesanti non giravano da un giorno, e nessuno lo diceva
+
+Domanda arrivata guardando la pagina: «gli archivi hanno 24 ore, ma i sync non
+dovrebbero girare ogni 6?». Sì. Non giravano. Due difetti distinti, uno risolto
+e uno ancora aperto.
+
+### Il primo: `__mp_main__` nella guardia di `main.py`
+
+APScheduler crea il suo ProcessPoolExecutor forzando `mp_context=spawn` — è
+scritto nel suo codice (`executors/pool.py`, `setdefault("mp_context",
+get_context("spawn"))`) e non è configurabile dall'esterno. Un figlio *spawn*
+**reimporta il modulo `__main__`** con nome `__mp_main__`, e la nostra guardia
+era `if __name__ in {"__main__", "__mp_main__"}`: il processo di lavoro
+ripartiva come applicazione intera, trovava la porta occupata, usciva con
+`SystemExit(0)`, e il pool moriva **prima di eseguire il job**.
+
+Il risultato è la peggior forma di guasto possibile: nessuna riga in `job_run`
+(il corpo del job non cominciava mai), `/health` che rispondeva `ok` perché
+riportava l'esito dell'*ultima* esecuzione riuscita — quella del giorno prima —
+e i cataloghi fermi da 24 ore senza un errore visibile da nessuna parte. Nel
+log c'era, e diceva tutto: `avvio sky42` seguito da `porta 8000 già in uso` a
+ogni tentativo di job, e `BrokenProcessPool`.
+
+`__mp_main__` serve a NiceGUI **solo con `reload=True`**, che non usiamo. Tolto.
+Verificato dopo la correzione: i job partono davvero e lavorano (100 s e 134 s
+di importazione vera).
+
+**Due lezioni che valgono oltre questo bug.** La prima: `/health` guardava
+l'*esito* dell'ultimo job e l'età dei dati, e nessuna delle due domande
+intercetta «il pianificatore non parte». Ora c'è `ultimo_sync_ore` — da quanto
+non parte un sync, a prescindere dall'esito — e lo stato diventa `degraded`
+oltre le 13 ore, cioè dopo due giri mancati. È la sonda che avrebbe scoperto
+questo guasto in mezza giornata invece che in un giorno e mezzo. La seconda: il
+recupero all'avvio si misura sull'**età dei dati**, che è la cosa giusta per un
+download condizionato, ma non distingue «la sorgente non è cambiata» da «il
+lavoro non riesce a girare». Le due domande vanno tenute separate anche qui.
+
+### Il secondo: `locking protocol` al COMMIT, e resta aperto
+
+Con il pool riparato, gli import girano e falliscono in fondo:
+
+```
+File "/app/core/db.py", line 56, in transaction
+    conn.execute("COMMIT")
+sqlite3.OperationalError: locking protocol
+```
+
+`SQLITE_PROTOCOL` è l'errore del protocollo di lock della WAL. Succede nel
+**processo di lavoro** mentre il processo dell'app tiene aperta la sua
+connessione, su `data/sky42.db`, che sta sul **bind mount di macOS**
+(`/run/host_mark/Users`, con `fakeowner`). Un test minimo — due processi, una
+scrittura piccola per uno — **passa**: quindi non è «due processi non possono
+scrivere», è qualcosa che scatta con le transazioni grandi. L'ipotesi in piedi:
+al COMMIT di un blocco da 20.000 righe la WAL supera la soglia di
+auto-checkpoint, il checkpoint deve coordinarsi con l'altra connessione
+attraverso il file di memoria condivisa `-shm`, e quel meccanismo su virtiofs
+non regge. È la stessa famiglia del problema già documentato per host contro
+container, con la differenza che qui entrambi i processi sono dentro il
+container: **è il filesystem, non il confine della VM**.
+
+Conseguenza da sapere: l'import commette a blocchi, quindi un fallimento a metà
+lascia il **catalogo parzialmente aggiornato** — e siccome il recupero
+all'avvio guarda l'età dei dati, quei blocchi appena scritti lo convincono che
+sia tutto fresco e non riprova. Va sistemato insieme al resto.
+
+Le strade, da valutare a mente fresca e con una misura ciascuna:
+
+1. **Spostare il database fuori dal bind mount**, in un volume Docker (ext4
+   dentro la VM), lasciando su `data/` solo i file scaricati e i backup. È la
+   soluzione robusta e coerente con la regola 1 — il database *è* un indice
+   rigenerabile — ma cambia dove vivono i dati e va deciso, non subito.
+2. **Disattivare l'auto-checkpoint nel processo di lavoro**
+   (`PRAGMA wal_autocheckpoint=0`) e checkpointare dall'app. Minima, ma è una
+   scommessa finché non è misurata.
+3. **Riportare gli import nel processo dell'app**, in un thread. Costerebbe
+   un'interfaccia melmosa per un minuto e mezzo quattro volte al giorno, e
+   rovescerebbe una decisione presa con una ragione (il GIL).
+
+Fino ad allora: **`cli.py ingest` dentro il container funziona** (è il percorso
+usato finora), e `/health` adesso dice `degraded` quando i sync non girano.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1460,7 +1587,14 @@ Si chiudono con numeri misurati, non con previsioni.
    conviene un import differenziale (`.add`/`.del`) invece di un rifacimento.
    Con i controlli ogni 6 ore la risposta arriva da sola: basta contare i 304
    in `external_call` contro gli import in `job_run` dopo una settimana.
-9. **Serve un guardiano per il container piantato?** `restart: unless-stopped`
+9. **Perché il COMMIT di un import grande fallisce con `locking protocol`?**
+   Aperta il 2026-08-16 (voce sopra). Da misurare: succede anche con
+   `wal_autocheckpoint=0` nel processo di lavoro? Succede con il database su un
+   volume Docker invece che sul bind mount? Succede se l'app non tiene una
+   connessione aperta? Tre prove da mezz'ora che decidono fra tre soluzioni
+   molto diverse. Finché non è risolta, i cataloghi si aggiornano solo da
+   `cli.py ingest` dentro il container.
+10. **Serve un guardiano per il container piantato?** `restart: unless-stopped`
    copre il processo che *muore*; **Docker non riavvia un container
    `unhealthy`**, quindi un processo che si pianta resta lì finché qualcuno
    guarda. Si risolve con poche righe (una sonda che esce quando `/health` non

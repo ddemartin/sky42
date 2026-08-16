@@ -30,8 +30,21 @@ FUNCTIONS = [
 ]
 
 
+# Il colore di casa. Il celestino è quello di serie di NiceGUI, cioè quello di
+# stock42: con due schede aperte sullo stesso schermo non si distingue quale sia
+# quale. Un rosso scuro tiene il contrasto con il bianco della barra in tema
+# chiaro e in tema scuro, e nessun'altra app di casa lo usa.
+PRIMARY = "#8B1A1A"
+
+
 def header(subtitle: str = "") -> None:
-    """Intestazione uguale su tutte le pagine: il nome torna sempre alla home."""
+    """Intestazione uguale su tutte le pagine: il nome torna sempre alla home.
+
+    `ui.colors` va chiamata dentro la pagina e non una volta all'avvio: in
+    NiceGUI è un elemento, e ogni pagina è un albero suo. Sta qui perché
+    l'intestazione è l'unica cosa che tutte le pagine hanno in comune.
+    """
+    ui.colors(primary=PRIMARY)
     with ui.header().classes("items-center px-4"):
         ui.icon("travel_explore").classes("text-2xl")
         ui.label(APP_NAME).classes("text-xl font-bold cursor-pointer") \

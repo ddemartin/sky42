@@ -51,7 +51,17 @@ def _porta_occupata(port: int) -> bool:
         return False
 
 
-if __name__ in {"__main__", "__mp_main__"}:
+# **Solo `__main__`, mai `__mp_main__`.** APScheduler crea il suo
+# ProcessPoolExecutor forzando `mp_context=spawn` (lo fa nel suo codice, non è
+# configurabile dal nostro), e un figlio spawn **reimporta questo file** con
+# `__name__ == "__mp_main__"`. Con `__mp_main__` nella guardia, ogni job pesante
+# faceva ripartire l'intera applicazione dentro il processo di lavoro: trovava
+# la porta occupata, usciva con SystemExit, e il pool moriva prima ancora di
+# eseguire il job. Nessuna riga in `job_run`, nessun errore visibile, e i
+# cataloghi fermi da un giorno (diagnosi del 2026-08-16, voce nel memorandum).
+#
+# `__mp_main__` serve a NiceGUI solo con `reload=True`, che qui non usiamo.
+if __name__ == "__main__":
     log.info("avvio %s — log in %s", APP_NAME, LOG_PATH)
 
     # Il client simulato dei test esegue questo file come se fosse `__main__`

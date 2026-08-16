@@ -239,26 +239,40 @@ gira all'avvio e deve essere idempotente.
 
 ## Da dove si riparte
 
-M0 è chiuso: catalogo, pianificatore, backup, container. Il prossimo passo è
-**M1**, e l'ordine non è indifferente perché ogni pezzo è il terreno del
-successivo:
+M0 è chiuso. Di **M1** è fatta tutta la catena di calcolo, ognuno dei pezzi con
+il suo test di verità contro Horizons dove una verità esiste:
 
-1. **`core/orbits/kepler.py`** — il solutore vettoriale. Nasce con il suo test
-   di verità: la posizione di un asteroide noto confrontata con Horizons, con
-   la tolleranza dichiarata nel test e non aggiustata finché passa. È il pezzo
-   su cui poggia tutto il resto, ed è anche quello dove un errore si nota meno.
-2. **`core/sites/reconcile.py`** — da `config/sites/*.yml` a
-   observatory/telescope/camera/setup. Piccolo, indipendente dal punto 1, e
-   sblocca la pagina Osservatori.
-3. **`core/orbits/positioner.py`** — il contratto `positions(target, jd)`.
-   Serve *prima* del visibility engine, o il visibility engine nascerà
-   assumendo che ogni target abbia un'anomalia media (regola 4).
-4. **`core/visibility/`** — notte e Luna per sito, poi brillanza del cielo,
-   `eff_vlim`, finestre.
-5. **`core/radar/`** e il ranking, che sono i due che rendono la dashboard una
-   console di decisione invece di una tabella.
+```
+core/orbits/kepler.py       ✅ due rami (Newton su E, variabili universali)
+core/sites/reconcile.py     ✅ YAML → hardware, idempotente, non cancella
+core/ephemeris.py           ✅ DE440s, l'unico che apre il kernel
+core/orbits/photometry.py   ✅ H-G e cometaria, che non si mescolano
+core/orbits/positioner.py   ✅ positions(body, jd), astrometrico geocentrico
+core/visibility/night.py    ✅ crepuscoli e Luna per sito
+core/visibility/geometry.py ✅ alt/az, airmass, separazioni
+core/visibility/sky.py      ✅ Krisciunas & Schaefer, somma in flusso
+core/visibility/limits.py   ✅ eff_vlim con le quattro penalità che sommano
+core/visibility/windows.py  ✅ finestra geometrica e finestra utile, separate
+```
 
-Due cose da tenere d'occhio mentre si costruisce M1: il database sta già a
-1 GB e `screening_track` lo farà crescere (voce nel memorandum), e il polling
-NEOCP di M2 **conviene anticiparlo** se M1 si allunga — quella storia non si
-recupera a posteriori.
+Restano i tre pezzi che trasformano una scheda per oggetto in una lista di
+stanotte, e l'ordine non è indifferente:
+
+1. **`core/radar/screening.py`** — propagare i ~14.000 oggetti 24 mesi avanti e
+   15 anni indietro, scrivere `screening_track` e distillare `target_stats`. È
+   ciò che **produce la lista**: finché non c'è, tutto il resto sa rispondere
+   solo su un oggetto che qualcuno ha già nominato. La propagazione costa 2.4 s
+   per 14.000 × 730 epoche, ma va a blocchi: quella griglia intera è ~490 MB.
+2. **`core/radar/states.py`** — stati e transizioni, isteresi 0.15 mag. Legge
+   `target_stats` e non ricalcola niente.
+3. **`core/ranking/`** — feature 0-1, pesi da `scoring_profile`, `score_json`
+   sempre salvato accanto allo score.
+
+Poi la dashboard Tonight, che a quel punto è una query e non un calcolo, e il
+job che scrive `observation_window` in massa: oggi `observation_window` la
+chiama una pagina, un oggetto alla volta, e il calcolo non cambierà — cambierà
+chi lo invoca.
+
+Due cose da tenere d'occhio: il database sta già a 1 GB e `screening_track` lo
+farà crescere (voce nel memorandum), e il polling NEOCP di M2 **conviene
+anticiparlo** se M1 si allunga — quella storia non si recupera a posteriori.

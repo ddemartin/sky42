@@ -12,16 +12,29 @@ Progetto e ragionamento iniziale: [IDEA.md](IDEA.md). Perché ogni cosa è com'�
 [MEMORANDUM.md](MEMORANDUM.md). Come si lavora: [CLAUDE.md](CLAUDE.md).
 Formule: [docs/modelli.md](docs/modelli.md). Schema: [docs/schema.sql](docs/schema.sql).
 
-> **Stato al 15 agosto 2026: M0 fatto.** I cataloghi si scaricano e si
-> importano, il Tisserand è calcolato, e la pagina Catalogo dice quanti oggetti
-> ci sono e da quando. Manca tutto il calcolo di visibilità: sapere che 14.685
-> oggetti sono asteroidi su orbita cometaria non dice ancora quale osservare
-> stanotte.
+> **Stato al 16 agosto 2026: M0 fatto, M1 a metà.** La catena di calcolo è
+> completa da un capo all'altro — catalogo → Keplero → positioner → sito →
+> notte → cielo → limite → finestra — e per un oggetto qualsiasi risponde in
+> millisecondi, senza chiamare JPL. Manca il pezzo che la fa girare **su tutti
+> gli oggetti insieme**: screening, radar degli stati e ranking. Oggi si
+> interroga un oggetto alla volta dalla pagina Oggetto; la dashboard «Stanotte»
+> arriva con lo screening, che è ciò che produrrà la lista dei candidati.
 >
 > ```
 > 1.557.419 oggetti     1.556.465 asteroidi + 954 comete
 > 1.556.169 con CEU     lo strato ASTORB agganciato all'MPC
 >    14.685 ACO         Tj < 3 tolte le famiglie risonanti
+> ```
+>
+> Un esempio di ciò che sa dire, dal container:
+>
+> ```
+> (4) Vesta — RC700 + QHY600 bin2 L (cile-rio-hurtado), notte del 2026-08-16
+>   geometrica 01:23-06:03 (4.7 h)   utile 01:23-06:03 (4.7 h)
+>   meglio alle 04:58 a 58° (X 1.18); transito 04:53 a 58°
+>   V 7.5 contro 21.1 — margine +13.6
+>   penalità: airmass 0.10, Luna 0.00, crepuscolo 0.00, moto 0.13
+>   cielo 21.7 mag/arcsec², Luna 24% a 166°, consigliate 1 x 438 s
 > ```
 
 ---
@@ -65,6 +78,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | riga di comando (`ingest`, `stato`, `siti`, `effemeride`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
 | recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
+| aggiornamento automatico dei cataloghi | ⚠️ | i job partono, ma il COMMIT fallisce con `locking protocol` sul bind mount di macOS (memorandum 16 ago, domanda aperta 9). Nel frattempo: `cli.py ingest` dentro il container |
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
 | reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
@@ -111,6 +125,14 @@ dashboard a tre sezioni. Criterio di uscita: la domanda «cosa entra sotto V 21
 nei prossimi dodici mesi, e da dove si vede meglio» ha una risposta sullo
 schermo senza aver chiamato JPL nemmeno una volta.
 
+*A metà, il 16 agosto 2026.* Fatti: solutore di Keplero, reconcile dei siti,
+positioner con fotometria, notte e Luna per sito, geometria e airmass,
+brillanza del cielo, magnitudine limite scomposta, finestre osservative — ognuno
+con il suo test di verità contro Horizons dove una verità esiste. Mancano
+**screening** (propagare tutto il catalogo e distillare `target_stats`),
+**radar** (stati e transizioni) e **ranking**, cioè i tre pezzi che
+trasformano una scheda per oggetto in una lista di stanotte.
+
 **M2 — i radar MPC e le comete.** Più la validazione contro Horizons e la
 calibrazione dei limiti, che è ciò che rende affidabile M1.
 
@@ -143,7 +165,7 @@ In esercizio gira in Docker, come brain42 e stock42:
 
 ```bash
 docker compose up -d --build
-curl -s localhost:8242/health          # 'ok', e l'età del catalogo in ore
+curl -s localhost:8242/health          # 'ok', età del catalogo e da quanto non parte un sync
 ```
 
 `restart: unless-stopped` lo rimette in piedi dopo un riavvio e dopo un crash.
