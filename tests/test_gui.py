@@ -180,3 +180,24 @@ async def test_si_cerca_anche_col_solo_nome(user: User, catalogo_minimo):
     await user.should_see("Tj =")
     righe = [r for t in user.find(ui.table).elements for r in t.rows]
     assert righe, "trovato l'oggetto ma nessuna effemeride"
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_oggetto_mostra_le_finestre_di_stanotte(user: User, catalogo_minimo,
+                                                      monkeypatch, tmp_path):
+    """La domanda del progetto, sulla pagina: da dove e in che finestra."""
+    import textwrap
+
+    from core import config
+    from services import sites_service
+    from tests.test_sites import SITO
+
+    siti = tmp_path / "sites"
+    siti.mkdir()
+    (siti / "cile.yml").write_text(textwrap.dedent(SITO), encoding="utf-8")
+    monkeypatch.setattr(config, "SITES_DIR", siti)
+    sites_service.run_reconcile()
+
+    await user.open("/oggetto?desig=1")
+    await user.should_see("Stanotte")
+    await user.should_see("RC700 + QHY600 bin2 L")

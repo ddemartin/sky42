@@ -49,7 +49,7 @@ def search(query: str, limit: int = 20) -> list[dict]:
     )
 
 
-def _target(desig: str) -> dict | None:
+def target_row(desig: str) -> dict | None:
     """Un oggetto solo, per designazione, nome, nome visualizzato o numero.
 
     Quattro modi perché sono i quattro modi in cui un asteroide si chiama:
@@ -81,7 +81,7 @@ def ephemeris(desig: str, days: int = 30, step_days: float = 1.0,
     calcolato con elementi di due anni fa sembra lo stesso numero di uno
     calcolato ieri.
     """
-    t = _target(desig)
+    t = target_row(desig)
     if t is None:
         return None
 

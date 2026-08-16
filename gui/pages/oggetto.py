@@ -24,6 +24,7 @@ from gui.layout import (
     table,
 )
 from services import ephemeris_service as eph
+from services import window_service
 
 log = logging.getLogger("sky42.gui.oggetto")
 
@@ -80,7 +81,8 @@ def oggetto_page(desig: str = "", giorni: str = "30 giorni") -> None:
         if dati is None:
             disegna_suggerimenti(q)
             return
-        _scheda(scheda, dati)
+        stanotte = await run.io_bound(window_service.tonight, q)
+        _scheda(scheda, dati, stanotte)
 
     def disegna() -> None:
         ui.timer(0, disegna_async, once=True)
@@ -92,7 +94,7 @@ def oggetto_page(desig: str = "", giorni: str = "30 giorni") -> None:
         disegna()
 
 
-def _scheda(contenitore, dati: dict) -> None:
+def _scheda(contenitore, dati: dict, stanotte: dict | None = None) -> None:
     t = dati["target"]
     with contenitore:
         with ui.card().classes("w-full gap-2"):
@@ -129,6 +131,8 @@ def _scheda(contenitore, dati: dict) -> None:
                 ui.icon("warning").classes("text-amber-600")
                 ui.label(avviso).classes("text-sm opacity-80")
 
+        _stanotte(stanotte)
+
         righe = dati["rows"]
         migliore = min((r for r in righe if r["v_mag"] is not None),
                        key=lambda r: r["v_mag"], default=None)
@@ -162,5 +166,83 @@ def _scheda(contenitore, dati: dict) -> None:
         ui.label(
             "Posizioni astrometriche J2000 geocentriche. Il moto apparente è calcolato "
             "per differenze finite su ±30 minuti; PA è l'angolo di posizione, 0° = nord, "
-            "90° = est. Le finestre osservative per sito arrivano con il visibility engine."
+            "90° = est."
         ).classes("text-xs opacity-60")
+
+
+def _ora(jd, timezone: str) -> str:
+    """JD → ora locale del sito: è l'unica forma in cui un orario è azionabile."""
+    if jd is None:
+        return "—"
+    from zoneinfo import ZoneInfo
+
+    from core.timeutil import datetime_from_jd, jd_utc_from_tdb
+
+    return datetime_from_jd(jd_utc_from_tdb(jd)).astimezone(
+        ZoneInfo(timezone)).strftime("%H:%M")
+
+
+def _stanotte(stanotte: dict | None) -> None:
+    """Stanotte, da quale setup, e con quale margine.
+
+    Le due finestre restano separate anche qui: «geometrica» dice quando
+    l'oggetto è sopra i limiti dello strumento, «utile» quando è anche sotto il
+    limite di magnitudine. Un setup da cui non si vede resta nell'elenco con il
+    suo motivo — sparire non spiega niente.
+    """
+    if not stanotte or not stanotte["windows"]:
+        return
+    ui.label("Stanotte").classes("text-xl font-bold")
+    for w in stanotte["windows"]:
+        tz = w["timezone"]
+        with ui.card().classes("w-full py-3 gap-1"):
+            with ui.row().classes("w-full items-center gap-3 no-wrap"):
+                ui.icon("nights_stay" if w["useful"] else "block") \
+                    .classes("text-lg " + ("text-primary" if w["useful"] else "opacity-40"))
+                ui.label(w["setup_name"]).classes("font-bold")
+                ui.badge(w["site_code"]).props("color=grey outline")
+                ui.label(f"notte del {w['night_date']}").classes("text-xs opacity-60")
+                ui.space()
+                if w["useful"]:
+                    ui.badge(f"margine {w['depth_margin']:+.1f} mag") \
+                        .props("color=positive")
+                else:
+                    ui.badge(w["motivo"]).props("color=grey")
+
+            if not w["observable"]:
+                continue
+
+            with ui.row().classes("gap-6 flex-wrap text-sm"):
+                ui.label(f"geometrica {_ora(w['geo_start_jd'], tz)}–"
+                         f"{_ora(w['geo_end_jd'], tz)} ({w['geo_hours']:.1f} h)")
+                if w["useful"]:
+                    ui.label(f"**utile** {_ora(w['useful_start_jd'], tz)}–"
+                             f"{_ora(w['useful_end_jd'], tz)} "
+                             f"({w['useful_hours']:.1f} h)").classes("text-primary")
+                else:
+                    ui.label(f"utile: nessuna — {w['wasted_hours']:.1f} h buttate") \
+                        .classes("opacity-70")
+                ui.label(f"meglio alle {_ora(w['best_jd'], tz)} a {w['best_alt_deg']:.0f}° "
+                         f"(X {w['best_airmass']:.2f})")
+                ui.label(f"transito {_ora(w['transit_jd'], tz)} a {w['max_alt_deg']:.0f}°") \
+                    .classes("opacity-70")
+
+            with ui.row().classes("gap-6 flex-wrap text-sm opacity-90"):
+                ui.label(f"V {w['v_pred']:.1f} contro limite {w['eff_vlim']:.1f} "
+                         f"(astrometrico {w['eff_vlim_astrometric']:.1f})")
+                # La scomposizione si mostra sempre: è il motivo per cui un
+                # numero si può tarare invece che solo leggere.
+                ui.label(f"penalità — airmass {w['pen_airmass']:.2f}, "
+                         f"Luna {w['pen_moon']:.2f}, crepuscolo {w['pen_twilight']:.2f}, "
+                         f"moto {w['pen_trailing']:.2f}").classes("opacity-70")
+
+            with ui.row().classes("gap-6 flex-wrap text-sm opacity-90"):
+                ui.label(f"cielo {w['sky_brightness_mag']:.1f} mag/arcsec²")
+                ui.label(f"Luna {w['moon_illum'] * 100:.0f}% a {w['moon_sep_deg']:.0f}° "
+                         f"(altezza {w['moon_alt_deg']:+.0f}°)")
+                ui.label(f"moto {w['motion_arcsec_min']:.2f}\"/min")
+                if w["rec_n_subs"]:
+                    ui.label(f"consigliate {w['rec_n_subs']} × {w['rec_exposure_s']:.0f} s "
+                             f"(traccia {w['trail_arcsec']:.1f}\")")
+                if w["needs_mosaic"]:
+                    ui.badge("serve un mosaico").props("color=warning")

@@ -1363,6 +1363,52 @@ si tornerebbe a casa senza dati.
 
 ---
 
+## 2026-08-16 — la finestra: due, e non si fondono
+
+`core/visibility/windows.py` chiude la catena. Due finestre per ogni coppia
+(target × setup), e restano due:
+
+* `geo_*` — l'oggetto è sopra l'altezza minima, dentro l'airmass massima, e il
+  Sole è abbastanza sotto per quel setup;
+* `useful_*` — dentro la geometrica, con V sotto il limite efficace.
+
+`useful_hours = 0` con `geo_hours = 6` **è un'informazione**: dice che si poteva
+puntare e non serviva a niente, cioè che è stata la Luna o la debolezza
+dell'oggetto e non la geometria. Un unico flag «non osservabile» butterebbe via
+proprio la parte che si può cambiare — aspettando cinque giorni che la Luna se
+ne vada. Nel risultato c'è anche `wasted_hours`, che è la differenza.
+
+**L'istante migliore è quello di massimo margine, non il transito.** Il
+transito si riporta lo stesso, perché serve a capire se il sito è adatto, ma
+con la Luna in giro i due punti non coincidono quasi mai. C'è un test che
+impedisce la semplificazione «tanto è il transito».
+
+**Si campiona a cinque minuti, non si risolve.** Era già la scelta di progetto
+e resta: non assume nulla sulla forma delle curve, vale identico per un
+positioner che un domani non avrà orbite, e costa **10 ms per oggetto** su una
+notte intera (156 punti). Il prezzo è che gli estremi sono quantizzati al passo
+e questo sta scritto nel risultato (`step_minutes`), invece di essere nascosto
+da un'interpolazione che darebbe una precisione che il modello non ha.
+
+**Si tiene il tratto più lungo, e si dice quanti erano.** Un oggetto può
+avere due finestre in una notte — una collina nel profilo dell'orizzonte, una
+Luna che sorge a metà. Fonderle in un intervallo unico racconterebbe una
+finestra che non è mai esistita; `n_segments` dice che c'era dell'altro.
+
+**Il servizio lavora su un oggetto alla volta**, di proposito: la lista dei
+candidati la produrrà lo screening, che non c'è ancora. Il calcolo per
+(target × setup) è già quello definitivo — quando arriverà lo screening
+cambierà chi fornisce la lista, non questo codice. E le notti si leggono da
+`night`, ma se mancano si calcolano al volo: una pagina non deve dipendere da
+quando è girato un lavoro di fondo.
+
+Primo risultato vero, dal container: **(4) Vesta, notte del 15 agosto, Río
+Hurtado: 4.7 h geometriche, 4.7 h utili, V 7.5 contro un limite di 21.1, margine
++13.6 mag.** Cerere e Faetonte quella notte non superano i 25° del setup, e la
+pagina lo dice invece di ometterli.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

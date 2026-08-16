@@ -101,6 +101,10 @@ def effective_limit(*, site: Site, setup: Setup, target_alt_deg,
     k = site.extinction_k
     t = setup.typical_exposure_s if exposure_s is None else np.asarray(exposure_s, dtype=float)
 
+    # Sotto l'orizzonte l'airmass è infinita e tutto quel che segue è NaN o
+    # −inf: è la risposta giusta e non un errore, quindi si tace il warning
+    # invece di riempire il log dello screening. Chi chiama filtra sulla
+    # maschera geometrica, che è l'unico posto in cui la domanda ha senso.
     x = airmass(alt)
 
     b_zenit = nanolambert(site.sky_zenith_mag)
@@ -115,6 +119,14 @@ def effective_limit(*, site: Site, setup: Setup, target_alt_deg,
               if sun_alt_deg is not None else np.zeros_like(b_scuro))
     b_tot = b_scuro + b_luna + b_crep
 
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return _componi(site, setup, alt, x, t, b_zenit, b_scuro, b_luna, b_crep,
+                        b_tot, motion_arcsec_min)
+
+
+def _componi(site, setup, alt, x, t, b_zenit, b_scuro, b_luna, b_crep, b_tot,
+             motion_arcsec_min):
+    k = site.extinction_k
     guadagno_posa = SKY_LIMITED * np.log10(t / setup.vlim_ref_exposure_s)
     estinzione = k * (x - 1.0)
     fondo = SKY_LIMITED * np.log10(b_tot / b_zenit)
