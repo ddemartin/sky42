@@ -77,6 +77,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
 | notte, Sole, Luna, crepuscoli | ✅ | `core/visibility/night.py`: crepuscoli a 0.5 s da Horizons, poli compresi |
 | piano delle notti (job `night_plan`) | ✅ | due settimane avanti per ogni sito attivo, ogni 6 h e all'avvio |
+| alt/az, airmass, separazione dalla Luna | ✅ | `core/visibility/geometry.py`: 1.7 M punti in 0.18 s, 11″ da Horizons |
 | brillanza del cielo con Luna | ⏳ M1 | Krisciunas & Schaefer 1991 |
 | magnitudine limite efficace scomposta | ⏳ M1 | airmass, Luna, crepuscolo, trailing, separate |
 | ricerca della finestra migliore | ⏳ M1 | campionamento a 5 min, non si assume il transito |

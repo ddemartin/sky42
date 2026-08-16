@@ -50,10 +50,12 @@ def search(query: str, limit: int = 20) -> list[dict]:
 
 
 def _target(desig: str) -> dict | None:
-    """Un oggetto solo, per designazione, nome completo o numero.
+    """Un oggetto solo, per designazione, nome, nome visualizzato o numero.
 
-    Il numero nudo («1», «3200») è come si chiama un asteroide numerato a voce,
-    e va con `kind` perché la numerazione delle comete è un'altra: 1P non è (1).
+    Quattro modi perché sono i quattro modi in cui un asteroide si chiama:
+    «A801 AA» è la designazione, «(1) Ceres» il nome visualizzato, «Ceres» il
+    nome e basta, «1» il numero. Il numero nudo va con `kind` perché la
+    numerazione delle comete è un'altra: 1P non è (1).
     """
     numero = int(desig) if desig.strip().isdigit() else -1
     righe = _rows(
@@ -63,9 +65,10 @@ def _target(desig: str) -> dict | None:
            JOIN orbit o ON o.target_id = t.id
            LEFT JOIN astorb_extra a ON a.target_id = t.id
            WHERE t.primary_desig = ? OR t.display_name = ?
+              OR t.name = ? COLLATE NOCASE
               OR (t.number = ? AND t.kind = 'asteroid')
            LIMIT 1""",
-        (desig, desig, numero),
+        (desig, desig, desig, numero),
     )
     return righe[0] if righe else None
 

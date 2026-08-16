@@ -1211,6 +1211,52 @@ una sorgente: ha una tabella che riempie, e la sua freschezza è l'età di quell
 
 ---
 
+## 2026-08-16 — la geometria costa quanto gli istanti, non quanto gli oggetti
+
+`core/visibility/geometry.py`: da RA/Dec ad altezza, azimut e airmass. La cosa
+che conta è **dove sta il ciclo**. La rotazione dal cielo al sito dipende solo
+dal tempo, quindi si calcola una volta per istante — zenit, nord ed est del
+sito come versori ICRF — e ogni oggetto diventa tre prodotti scalari.
+Misurato: 120 istanti costano 97 ms di matrici, e sopra ci passano
+**1.7 milioni di punti (14.000 oggetti × 120 istanti) in 0.18 s**. Una notte
+intera di un sito, alla griglia da 5 minuti, è mezzo secondo di geometria.
+
+**La rotazione la fa Skyfield, non noi.** `itrs.rotation_at(t)` contiene
+precessione, nutazione, tempo siderale apparente e moto dei poli. Scriverla a
+mano con il tempo siderale medio è la scorciatoia ovvia, ed è sbagliata in modo
+credibile: fra J2000 e oggi la sola precessione vale **22 primi d'arco**, cioè
+un terzo di grado di altezza. Un oggetto a 20° dichiarato a 20.35° non fa
+sospettare niente a nessuno. C'è un test apposta che confronta la stessa
+direzione a 26 anni di distanza e pretende più di un grado di differenza.
+
+**Kasten & Young e non `sec z`.** Scarti misurati della secante: 0.3% a 30° di
+altezza, 3% a 10°, 11% a 5°, 47% a 2°, infinito all'orizzonte — cioè l'errore
+esplode esattamente dove si decide se un oggetto è osservabile. Due proprietà
+della formula, entrambe verificate da un test perché sembrano errori: allo
+zenit dà 0.99971 e non 1 (è l'interpolazione, e 3e-4 di airmass sono 3e-4 mag),
+e all'orizzonte vale 38 senza divergere — quindi non c'è nessun troncamento
+artificiale. Sotto l'orizzonte è `inf`, che è la risposta giusta: un oggetto
+tramontato non ha una via d'aria un po' lunga, non ce l'ha proprio.
+
+**Coordinate geocentriche, non topocentriche.** La parallasse diurna vale
+8.8″/Δ in AU: 0.05° per un NEO a 0.05 AU, un millesimo di grado per la fascia
+principale. Irrilevante per l'airmass e per decidere se un oggetto si vede; per
+puntare si passa da Horizons, che la parallasse la mette da sé.
+
+**Verifica contro Horizons** dalle coordinate del sito, dando in pasto alla
+nostra `altaz` le coordinate astrometriche di Horizons — così si misura la
+rotazione e non la propagazione. Quattro casi fra 13° e 49° di altezza:
+residuo **11″**, che è l'aberrazione annua (i tassi e le posizioni apparenti di
+Horizons ce l'hanno, le nostre astrometriche no). L'airmass coincide a tre
+cifre sopra i 30° e all'1% a 13°, dove entra la rifrazione.
+
+**Due orizzonti separati fino all'ultimo.** Il profilo del terreno appartiene
+al sito, l'altezza minima alla montatura: `above_horizon` prende il massimo dei
+due. Tenerli distinti costa un parametro e serve il giorno in cui si aggiunge
+un telescopio a un sito che ha già i suoi alberi.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

@@ -171,3 +171,12 @@ async def test_una_cometa_arriva_con_i_suoi_avvisi(user: User, catalogo_minimo):
     await user.open("/oggetto?desig=C/1995 O1")
     await user.should_see("Hale-Bopp")
     await user.should_see("è un ordinamento, non una previsione")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_si_cerca_anche_col_solo_nome(user: User, catalogo_minimo):
+    """«Ceres», non «(1) Ceres» né «A801 AA»: è così che si chiama a voce."""
+    await user.open("/oggetto?desig=Ceres")
+    await user.should_see("Tj =")
+    righe = [r for t in user.find(ui.table).elements for r in t.rows]
+    assert righe, "trovato l'oggetto ma nessuna effemeride"
