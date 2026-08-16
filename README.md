@@ -1,0 +1,217 @@
+# sky42
+
+Console personale di follow-up del Sistema Solare. Gira 24/7 su un Mac mini,
+tiene aggiornato un catalogo orbitale locale, usa i tempi morti per precalcolare
+chi sta tornando alla portata dei telescopi, e risponde a una domanda sola:
+**cosa osservo stanotte, da quale sito e in quale finestra.**
+
+Il grosso dei conti si fa in casa. JPL Horizons si chiama alla fine, su una
+manciata di oggetti, per confermare — mai per cercare.
+
+Progetto e ragionamento iniziale: [IDEA.md](IDEA.md). Perché ogni cosa è com'è:
+[MEMORANDUM.md](MEMORANDUM.md). Come si lavora: [CLAUDE.md](CLAUDE.md).
+Formule: [docs/modelli.md](docs/modelli.md). Schema: [docs/schema.sql](docs/schema.sql).
+
+> **Stato al 15 agosto 2026: M0 fatto.** I cataloghi si scaricano e si
+> importano, il Tisserand è calcolato, e la pagina Catalogo dice quanti oggetti
+> ci sono e da quando. Manca tutto il calcolo di visibilità: sapere che 14.685
+> oggetti sono asteroidi su orbita cometaria non dice ancora quale osservare
+> stanotte.
+>
+> ```
+> 1.557.419 oggetti     1.556.465 asteroidi + 954 comete
+> 1.556.169 con CEU     lo strato ASTORB agganciato all'MPC
+>    14.685 ACO         Tj < 3 tolte le famiglie risonanti
+> ```
+
+---
+
+## Come funziona
+
+```
+ASTORB / MPC
+    ↓  ingest, una volta al giorno, condizionato all'ETag
+database locale (SQLite)
+    ↓  Tisserand, classi, incertezza — al momento dell'import
+screening: propagazione a due corpi, 24 mesi avanti e 15 indietro
+    ↓  chi entra sotto il limite, chi torna dopo anni, chi è al picco
+radar: stati e transizioni per (oggetto × setup)
+    ↓
+visibility engine: notte, Luna, brillanza del cielo, finestre
+    ↓  magnitudine limite efficace, trailing, esposizioni
+ranking trasparente a pesi
+    ↓
+dashboard  →  shortlist  →  Horizons, solo per verifica
+```
+
+La differenza fra `GEOMETRICALLY OBSERVABLE` e `ACTUALLY USEFUL` è il punto di
+tutto il sistema: un oggetto alto 70° e sotto una Luna piena a 15° non è
+osservabile, e il numero che lo dice è la **magnitudine limite efficace**,
+salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
+
+## Stato delle funzioni
+
+| funzione | stato | note |
+|---|---|---|
+| schema del database | ✅ | [docs/schema.sql](docs/schema.sql), commentato |
+| modelli e formule | ✅ | [docs/modelli.md](docs/modelli.md), con le fonti |
+| configurazione dei siti in YAML | ✅ progetto | un file per osservatorio, [esempio](config/sites/cile-rio-hurtado.yml) |
+| download condizionato (ETag, scrittura atomica) | ✅ | 280 MB non si riscaricano per scoprire che non sono cambiati |
+| import MPCORB extended | ✅ | la fonte: 1.556.465 oggetti in 84 s, JSON in streaming |
+| import ASTORB | ✅ | lo strato CEU: 1.556.169 agganciati in 15 s, 808 fuori catalogo MPC |
+| import CometEls | ✅ | 954 comete, con le iperboliche trattate come tali |
+| Tisserand e derivati orbitali | ✅ | calcolati all'import, indicizzati |
+| pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
+| riga di comando (`cli.py ingest`, `cli.py stato`) | ✅ | gli stessi moduli dell'interfaccia |
+| pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
+| recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
+| backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
+| manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
+| reconcile dei siti (sito/telescopio/camera/setup) | ⏳ M1 | scala e campo derivati dalla focale, mai scritti a mano |
+| solutore di Keplero vettoriale | ⏳ M1 | numpy, tutti gli oggetti insieme; test di verità contro Horizons |
+| screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
+| notte, Sole, Luna, crepuscoli | ⏳ M1 | Skyfield + DE440s, per sito |
+| brillanza del cielo con Luna | ⏳ M1 | Krisciunas & Schaefer 1991 |
+| magnitudine limite efficace scomposta | ⏳ M1 | airmass, Luna, crepuscolo, trailing, separate |
+| ricerca della finestra migliore | ⏳ M1 | campionamento a 5 min, non si assume il transito |
+| returning-object radar (stati e transizioni) | ⏳ M1 | isteresi 0.15 mag, conferma su due giri |
+| confronto automatico dei siti | ⏳ M1 | `BEST SITE TONIGHT` e `BEST SITE NOW` |
+| ranking a pesi trasparenti | ⏳ M1 | pesi in `scoring_profile`, breakdown salvato |
+| dashboard: Tonight / Coming into range / Tj < 3 | ⏳ M1 | NiceGUI, come stock42: nessuna catena di build |
+| trailing ed esposizione consigliata | ⏳ M1 | `n × t` invece di un singolo tempo |
+| incertezza posizionale vs campo, mosaico | ⏳ M1 | dalla CEU di ASTORB, propagata a oggi |
+| watcher NEOCP | ⏳ M2 | **da anticipare se M1 si allunga**: la storia persa non si recupera |
+| watcher PCCP | ⏳ M2 | |
+| watcher MPEC e destino dei candidati | ⏳ M2 | da candidato a oggetto confermato, o a niente |
+| comete: elementi MPC e radar dedicato | ⏳ M2 | ordinate per geometria, non per magnitudine |
+| verifica con Horizons sulla shortlist | ⏳ M2 | con budget giornaliero e cache; ogni chiamata a log |
+| validazione due corpi contro Horizons | ⏳ M2 | 50 oggetti/mese a 1, 6, 12, 24 mesi (domanda aperta 2) |
+| calibrazione di `vlim_ref` dalle misure | ⏳ M2 | i fatti battono il file di configurazione |
+| notifiche | ⏳ M3 | prima serve sapere quante transizioni al giorno genera il radar |
+| oggetti deep sky | — un domani | lo schema e il positioner sono già pronti a riceverli |
+| pipeline di immagini (PSF, ricerca di coma) | — fuori | progetto separato: da sky42 riceverebbe solo la lista di target |
+
+## Milestone
+
+**M0 — il catalogo esiste.** ✅ *fatto il 15 agosto 2026.* Le tre sorgenti si
+scaricano e si importano, il Tisserand è calcolato e indicizzato, la pagina
+Catalogo mostra quanti e da quando. `SELECT count(*) FROM orbit WHERE
+tisserand_j < 3` risponde: 34.048, che diventano 14.685 togliendo comete e
+famiglie risonanti.
+
+**M1 — l'MVP di IDEA.md.** Screening, notte, Luna, finestre, radar, ranking,
+dashboard a tre sezioni. Criterio di uscita: la domanda «cosa entra sotto V 21
+nei prossimi dodici mesi, e da dove si vede meglio» ha una risposta sullo
+schermo senza aver chiamato JPL nemmeno una volta.
+
+**M2 — i radar MPC e le comete.** Più la validazione contro Horizons e la
+calibrazione dei limiti, che è ciò che rende affidabile M1.
+
+**M3 — le notifiche**, quando si saprà quanto rumore fa il radar.
+
+## Avvio
+
+```bash
+python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python main.py            # interfaccia su http://127.0.0.1:8242
+```
+
+`python3.13`, non `python3`: su macOS quello di sistema è il 3.9.
+
+Il primo riempimento del catalogo (circa 280 MB da scaricare, 100 s di CPU):
+
+```bash
+.venv/bin/python cli.py ingest all     # oppure il pulsante nella pagina Catalogo
+.venv/bin/python cli.py stato          # cosa c'è nel database
+```
+
+Test: `.venv/bin/python -m pytest` — girano su una cartella dati temporanea,
+mai su quella vera.
+
+### Sempre acceso
+
+In esercizio gira in Docker, come brain42 e stock42:
+
+```bash
+docker compose up -d --build
+curl -s localhost:8242/health          # 'ok', e l'età del catalogo in ore
+```
+
+`restart: unless-stopped` lo rimette in piedi dopo un riavvio e dopo un crash.
+
+**La riga di comando si esegue dentro il container**, non dall'host:
+
+```bash
+docker compose exec sky42 python cli.py ingest all
+docker compose exec sky42 python cli.py stato
+```
+
+Host e container che scrivono insieme sullo stesso file SQLite attraverso il
+bind mount è il modo documentato di corrompere un database: in WAL il
+coordinamento fra scrittori passa da un file di memoria condivisa che non
+attraversa il confine della VM. Dall'host si usa `cli.py` solo a servizio
+fermo.
+
+Per raggiungerlo da un'altra macchina si mette in `.env` l'indirizzo Tailscale
+**di questa** macchina:
+
+```
+SKY42_BIND_IP=100.x.y.z
+```
+
+Non `0.0.0.0`, che lo esporrebbe anche alla rete locale: sky42 non ha
+autenticazione. Dentro la tailnet va bene; il giorno di `tailscale funnel`
+l'autenticazione arriva prima. In alternativa a Docker c'è un LaunchAgent
+pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
+
+## Cosa gira da solo
+
+| lavoro | cadenza | fa |
+|---|---|---|
+| `mpcorb_sync` | ogni 6 h | scarica se l'ETag è cambiato, importa, `ANALYZE` |
+| `astorb_sync` | ogni 6 h | lo strato dell'incertezza |
+| `cometels_sync` | ogni 6 h | le comete |
+| `backup` | ogni giorno 03:00 UTC | le sei tabelle non rigenerabili |
+| `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
+
+Ogni 6 ore e non a un orario fisso perché le sorgenti pubblicano a orari che si
+spostano (Lowell slitta di ore nella data di Luna piena) e con l'ETag un
+controllo a vuoto costa poche centinaia di byte. Al riavvio si guarda l'età dei
+dati, non l'orario mancato.
+
+Stato, esito e pulsante "esegui ora" in `/pianificatore`.
+
+## Il Mac mini fa girare altro
+
+sky42 è un ospite, e sono cinque misure concrete, non una buona intenzione:
+`OMP_NUM_THREADS=1` prima di importare numpy (su macOS Accelerate si prende
+tutti i core da sola), al massimo 2 processi di calcolo, `nice 10`, lavoro a
+blocchi di 20.000 con controllo del carico fra un blocco e l'altro, e download
+condizionati. Le soglie stanno in [core/config.py](core/config.py) e si
+cambiano da variabile d'ambiente.
+
+## Configurare un osservatorio
+
+Un file in `config/sites/`, versionato in git. Il database lo indicizza e si
+rifà da solo; scala del pixel e campo si calcolano da focale, pixel e binning,
+non si scrivono. Per dismettere qualcosa si mette `valid_to` e `active: false`
+— **non si cancella**, o le osservazioni già fatte con quel setup perdono il
+loro significato.
+
+Esempio commentato: [config/sites/cile-rio-hurtado.yml](config/sites/cile-rio-hurtado.yml).
+
+## Dati
+
+Tutto sotto `data/`, unico bind mount del container:
+
+```
+data/sky42.db          il database
+data/catalogs/         astorb.dat.gz e gli altri file scaricati, con il loro hash
+data/ephem/            DE440s (~32 MB), scaricato una volta
+data/cache/horizons/   le risposte JPL, per non richiederle
+```
+
+Il backup deve prendere almeno **`mpc_candidate`, `mpc_candidate_snapshot`,
+`state_transition`, `observation_log`, `watchlist`, `setup_calibration`**: il
+resto si riscarica e si ricalcola, quelle no. Il perché sta nel
+[memorandum](MEMORANDUM.md).

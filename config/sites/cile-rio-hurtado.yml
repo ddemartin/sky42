@@ -1,0 +1,70 @@
+# Esempio di sito. Un file per osservatorio, versionato in git.
+# Questo file è la fonte di verità: il database lo indicizza e si rifà da solo.
+#
+# `code` è la chiave stabile ovunque, anche nella storia delle osservazioni:
+# non si cambia mai. Per dismettere qualcosa si scrive `valid_to` e
+# `active: false`, non si cancella la voce — o le osservazioni fatte con quel
+# setup diventano illeggibili.
+#
+# pixel_scale e campo NON si scrivono: li calcola il reconcile da focale,
+# pixel e binning. Scriverli a mano è il modo più facile per avere un campo
+# che non corrisponde a quello delle immagini.
+
+code: cile-rio-hurtado
+name: Río Hurtado, Cile
+mpc_code: null
+latitude: -30.4728          # gradi, nord positivo
+longitude: -70.7647         # gradi, est positivo
+altitude_m: 1560
+timezone: America/Santiago
+
+# Qualità del cielo: entra nel modello di brillanza lunare, non è un commento.
+sky_zenith_mag: 21.8        # V mag/arcsec² in notte scura senza Luna
+extinction_k: 0.14          # mag/airmass in V
+
+# Orizzonte locale, opzionale: [azimut, altezza minima]. Interpolato in mezzo.
+# horizon:
+#   - [0, 22]
+#   - [90, 18]
+#   - [180, 30]
+#   - [270, 20]
+
+telescopes:
+  - code: cile-rc700
+    name: RC 700
+    aperture_mm: 700
+    focal_length_mm: 4540
+    design: Ritchey-Chrétien
+    min_altitude_deg: 25
+    max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
+    meridian_flip: false
+
+cameras:
+  - code: qhy600m
+    name: QHY600M Pro
+    sensor: IMX455
+    pixel_um: 3.76
+    pixels_x: 9576
+    pixels_y: 6388
+    read_noise_e: 3.0
+
+setups:
+  - code: cile-rc700-qhy600-bin2
+    name: RC700 + QHY600 bin2 L
+    telescope: cile-rc700
+    camera: qhy600m
+    binning: 2
+    filter: L
+    focal_reducer: 1.0
+    # Il limite dichiarato è una stima iniziale: setup_calibration lo corregge
+    # con le misure vere, e il reconcile non lo sovrascrive se ci sono misure.
+    vlim_ref: 21.3                    # rivelazione S/N≈5
+    vlim_ref_exposure_s: 120
+    vlim_astrometric_delta: -0.5      # quanto togliere per astrometria affidabile
+    typical_exposure_s: 120
+    max_exposure_s: 600
+    max_airmass: 2.0
+    typical_seeing_arcsec: 1.6
+    sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
+    valid_from: 2026-01-01
+    active: true

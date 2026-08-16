@@ -1,0 +1,53 @@
+services:
+  sky42:
+    build: .
+    image: sky42:local
+    container_name: sky42
+    restart: unless-stopped
+
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      SKY42_DATA_DIR: /app/data
+      SKY42_HOST: "0.0.0.0"
+      SKY42_PORT: "8000"
+
+      # Il fuso serve all'interfaccia, non ai calcoli: nel database tutto è UTC
+      # e JD. Ma le notti degli osservatori si leggono in ora locale, e un
+      # container senza fuso sta in UTC.
+      TZ: ${TZ:-Europe/Rome}
+
+      # sky42 è un ospite: il Mac mini fa girare anche brain42 e stock42.
+      SKY42_MAX_WORKERS: ${SKY42_MAX_WORKERS:-2}
+      SKY42_NICE: ${SKY42_NICE:-10}
+      SKY42_LOAD_LIMIT: ${SKY42_LOAD_LIMIT:-1.0}
+
+    ports:
+      # 8042 è stock42, 8142 è brain42, 8242 è sky42.
+      #
+      # L'indirizzo di ascolto è esplicito e di default è 127.0.0.1: pubblicare
+      # senza indirizzo lega la porta a **tutte** le interfacce, e sky42 non ha
+      # autenticazione. Per raggiungerlo dalle altre macchine si mette
+      # l'indirizzo Tailscale di questa in SKY42_BIND_IP (file .env), non
+      # 0.0.0.0: così il servizio esiste per la tailnet e non per il Wi-Fi di
+      # casa. Dentro il container l'ascolto resta 0.0.0.0, o la porta
+      # pubblicata non raggiungerebbe nessuno.
+      - "${SKY42_BIND_IP:-127.0.0.1}:8242:8000"
+
+    volumes:
+      # Bind mount come brain42: il database, i cataloghi scaricati e i backup
+      # restano visibili nel Finder e raggiungibili dal copiatore esterno.
+      #
+      # Da qui discende una regola che vale solo per sky42, perché è l'unico dei
+      # tre ad avere una riga di comando che scrive: `cli.py` si esegue
+      # **dentro** il container
+      #
+      #     docker compose exec sky42 python cli.py ingest all
+      #
+      # e mai dall'host. SQLite in WAL coordina gli scrittori con un file di
+      # memoria condivisa che non attraversa il confine della VM: host e
+      # container che scrivono insieme sullo stesso file è il modo documentato
+      # di corrompere un database SQLite.
+      - ./data:/app/data

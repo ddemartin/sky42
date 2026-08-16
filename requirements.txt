@@ -1,0 +1,19 @@
+# sky42 — dipendenze
+#
+# Regola: si aggiunge una riga solo con una voce nel MEMORANDUM che dice perché.
+# Nessuna dipendenza compilata, nessuna toolchain JavaScript.
+
+nicegui>=3.14        # interfaccia: stessa scelta di stock42, grafici inclusi
+apscheduler>=3.10    # job di fondo dentro il processo dell'app (unico scrittore)
+httpx>=0.27          # l'unico client HTTP: ETag, streaming, timeout
+numpy>=2.0           # il motore orbitale vettoriale
+pyyaml>=6.0          # configurazione dei siti osservativi
+
+# --- da aggiungere quando arriva il modulo che li usa ---
+# skyfield>=1.49     # M1: Sole, Luna, crepuscoli, posizioni topocentriche (+ DE440s)
+
+# --- sviluppo ---
+pytest>=8.0
+# 0.24: la 1.x rompe il client simulato di NiceGUI, che è come si verifica che
+# le pagine si disegnino davvero senza tirare dentro selenium e un browser.
+pytest-asyncio==0.24.0

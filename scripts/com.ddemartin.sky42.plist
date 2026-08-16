@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  sky42 come servizio sempre acceso su macOS.
+
+  Installazione (LaunchAgent, parte al login dell'utente):
+
+      cp scripts/com.ddemartin.sky42.plist ~/Library/LaunchAgents/
+      launchctl load  ~/Library/LaunchAgents/com.ddemartin.sky42.plist
+      launchctl list | grep sky42
+
+  Per fermarlo:
+
+      launchctl unload ~/Library/LaunchAgents/com.ddemartin.sky42.plist
+
+  Se serve che riparta **anche senza login** — cioè dopo un riavvio in cui
+  nessuno si siede davanti al Mac mini — va installato come LaunchDaemon in
+  /Library/LaunchDaemons (root), aggiungendo <key>UserName</key> con l'utente
+  proprietario di data/. È la differenza che ha deciso launchd al posto di
+  Docker Desktop, che una sessione utente la pretende sempre.
+
+  Percorsi assoluti obbligatori: launchd non ha PATH né shell di login.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ddemartin.sky42</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ddemartin/GitHub/sky42/.venv/bin/python</string>
+        <string>/Users/ddemartin/GitHub/sky42/main.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ddemartin/GitHub/sky42</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Il parallelismo lo decidiamo noi: senza questa, numpy su Accelerate
+             si prende tutti i core e il Mac mini arranca. -->
+        <key>OMP_NUM_THREADS</key>
+        <string>1</string>
+        <key>VECLIB_MAXIMUM_THREADS</key>
+        <string>1</string>
+        <!-- Per l'accesso da altre macchine: l'indirizzo Tailscale di QUESTA
+             macchina, non 0.0.0.0 — che esporrebbe il servizio, che non ha
+             autenticazione, anche a tutta la rete locale.
+        <key>SKY42_HOST</key>
+        <string>100.x.y.z</string>
+        -->
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Riparte se muore. Con SuccessfulExit=false riparte anche dopo un'uscita
+         pulita non richiesta, che è quello che serve a un servizio 24/7. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Se il bind fallisce perché tailscaled non è ancora pronto, launchd
+         riprova; senza questo throttle riproverebbe dieci volte al secondo. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ddemartin/GitHub/sky42/data/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ddemartin/GitHub/sky42/data/logs/launchd.err.log</string>
+
+    <!-- sky42 è un ospite: perde contro tutto il resto che gira sulla macchina. -->
+    <key>Nice</key>
+    <integer>5</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

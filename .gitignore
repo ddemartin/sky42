@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# I dati non stanno in git: si riscaricano (tranne le cinque tabelle non
+# rigenerabili, che vanno nel backup — vedi MEMORANDUM.md).
+data/
+.env
