@@ -1257,6 +1257,56 @@ un telescopio a un sito che ha già i suoi alberi.
 
 ---
 
+## 2026-08-16 — il cielo si somma in flusso, e il crepuscolo resta una stima
+
+`core/visibility/sky.py`: Krisciunas & Schaefer 1991 per la Luna, più il cielo
+scuro del sito e il crepuscolo. Tre cose da tenere ferme.
+
+**I contributi si sommano in flusso, mai in magnitudine.** Sembra ovvio scritto
+così, e non lo è quando si ha in mano una funzione che restituisce
+magnitudini: sommare due mag/arcsec² dà un cielo *più scuro* aggiungendo la
+Luna. Tutto passa per i nanoLambert e torna in magnitudini una volta sola, alla
+fine. Anche il **crepuscolo** è un'aggiunta di flusso e non una sottrazione di
+magnitudini: `B_extra = B_scuro · (10^(0.4·ΔV) − 1)`. Scritto così, senza Luna
+il risultato è esattamente «cielo scuro meno ΔV», e con la Luna i due si
+sommano come fanno le luci vere; la sottrazione diretta conterebbe due volte la
+parte già illuminata.
+
+**L'airmass di K&S non è quella di Kasten & Young, e non va sostituita.**
+`X = (1 − 0.96 sin²Z)^(−1/2)` è l'approssimazione con cui gli autori hanno
+*tarato* i coefficienti del modello: rimpiazzarla con una più accurata cambia
+il modello senza migliorarlo. Scarti misurati: −0.6% a 30° di distanza
+zenitale, −5% a 60°, −12% a 70°, −32% a 80°. Conseguenza pratica, anch'essa
+misurata e messa in un test: **una Luna piena a 1° di altezza risulta ancora
+capace di schiarire il cielo di 2.6 mag**, dove la realtà la estinguerebbe di
+più. È un limite noto, dura pochi minuti per notte e sparisce appena la Luna
+tramonta — ma va saputo prima di guardare un numero strano e cercare il bug
+nel posto sbagliato.
+
+**Il coefficiente del crepuscolo diventerà per sito, ma non oggi.** 0.55
+mag/grado è una stima, non una misura: dipende da aerosol, orizzonte e
+direzione rispetto al Sole, quindi cambia da sito a sito. La struttura è già
+pronta — `Site.twilight_coeff`, con `None` che significa «non misurato qui,
+usa il default del modello», e `sky_brightness(twilight_coeff=...)` — ma la
+colonna in `observatory` e la chiave YAML **non** ci sono ancora, di proposito:
+finché non c'è una misura sarebbero una manopola da girare a caso, e un numero
+senza il suo perché è indistinguibile da un capriccio (regola 5). Il giorno in
+cui `setup_calibration` avrà abbastanza notti sarà una colonna e una riga di
+migrazione. I test fissano la *forma* del crepuscolo — lineare, nulla sotto
+−18° — e non il valore.
+
+**Come si verifica un modello che non ha una verità da scaricare.** Non
+esistono effemeridi della brillanza del cielo, e K&S dichiarano un rms di 0.23
+mag sulle proprie misure. Quindi: le formule contro il calcolo a mano
+coefficiente per coefficiente; il comportamento fisico (più Luna = più chiaro,
+Luna tramontata = niente, il minimo di disturbo a ~90° e la risalita per
+retrodiffusione oltre); e gli ordini di grandezza contro la letteratura — con
+Luna piena alta il cielo in V esce fra 17.2 e 18.9 mag/arcsec², che è dove deve
+stare. La verifica vera arriverà da `setup_calibration`, cioè dalle nostre
+notti.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1281,7 +1331,13 @@ Si chiudono con numeri misurati, non con previsioni.
    (voce sopra). Manca il resto della catena — Terra da Skyfield, tempo luce,
    fotometria, finestre — che è dove il tempo andrà davvero.
 4. **Il coefficiente 0.55 mag/grado del crepuscolo.** Va misurato con
-   `setup_calibration` e sostituito. Oggi è una stima.
+   `setup_calibration` e sostituito. Oggi è una stima. **Aggiornamento
+   2026-08-16:** il codice è già pronto a riceverne uno per sito
+   (`Site.twilight_coeff`, `None` = usa il default); mancano di proposito la
+   colonna e la chiave YAML, che arriveranno con la prima misura e non prima.
+   Serve anche decidere *come* si misura: la magnitudine limite raggiunta in
+   pose di crepuscolo contro quelle di notte piena, sullo stesso campo e con la
+   stessa posa, è la strada più corta.
 5. **`vlim_ref` dichiarato contro misurato.** Di quanto sbaglia la stima
    iniziale su ciascun setup? È la taratura che rende sensato tutto il resto,
    perché ogni soglia del radar ci si appoggia.

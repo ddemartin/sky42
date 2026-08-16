@@ -24,6 +24,12 @@ class Site:
     sky_zenith_mag: float = 21.6    # V mag/arcsec² in notte scura senza Luna
     extinction_k: float = 0.16      # mag/airmass in V
     horizon: tuple | None = None    # ((az, alt), ...) crescente in azimut
+    # Coefficiente del crepuscolo, mag per grado di Sole sopra i −18°. `None`
+    # significa «non misurato qui»: si usa il default del modello. Dipende dal
+    # sito (aerosol, orizzonte, direzione rispetto al Sole) e sarà una colonna
+    # di `observatory` il giorno in cui `setup_calibration` avrà abbastanza
+    # notti per misurarlo — non prima, o sarebbe una manopola da girare a caso.
+    twilight_coeff: float | None = None
     code: str = ""
 
     @classmethod
@@ -42,6 +48,7 @@ class Site:
             sky_zenith_mag=float(row.get("sky_zenith_mag") or 21.6),
             extinction_k=float(row.get("extinction_k") or 0.16),
             horizon=horizon,
+            twilight_coeff=row.get("twilight_coeff"),
             code=row.get("code") or "",
         )
 
