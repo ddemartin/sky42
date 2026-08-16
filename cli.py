@@ -66,6 +66,32 @@ def cmd_stato(args) -> None:
         print(f"  {r['fascia']:<16} {r['n']:>10,}")
 
 
+def cmd_siti(args) -> None:
+    from services import sites_service
+
+    if not args.solo_lettura:
+        report = sites_service.run_reconcile()
+        print(f"— reconcile — {report['siti']} file")
+        for chiave in ("creati", "aggiornati", "disattivati"):
+            voci = report[chiave]
+            print(f"  {chiave:<14} {len(voci):>3}  {', '.join(voci) if voci else ''}")
+        if report["vlim_tenuti"]:
+            print(f"  vlim misurato tenuto per: {', '.join(report['vlim_tenuti'])}")
+        print()
+
+    for sito in sites_service.overview():
+        stato = "" if sito["active"] else "  [dismesso]"
+        print(f"{sito['name']} ({sito['code']}){stato}")
+        print(f"  {sito['latitude']:+.4f}, {sito['longitude']:+.4f}  "
+              f"{sito['altitude_m']:.0f} m  {sito['timezone']}  "
+              f"cielo {sito['sky_zenith_mag']:.1f}  k={sito['extinction_k']:.2f}")
+        for s in sito["setups"]:
+            print(f"    {s['code']:<28} {s['pixel_scale_arcsec']:.3f}\"/px  "
+                  f"{s['fov_x_arcmin']:.1f}' × {s['fov_y_arcmin']:.1f}'  "
+                  f"f/{s['f_ratio']:.1f}  Vlim {s['vlim_ref']:.1f}"
+                  f"{'' if s['active'] else '  [dismesso]'}")
+
+
 def main() -> None:
     setup_file_logging()
     init_db()
@@ -82,6 +108,11 @@ def main() -> None:
 
     ps = sub.add_parser("stato", help="cosa c'è nel database")
     ps.set_defaults(func=cmd_stato)
+
+    pl = sub.add_parser("siti", help="riallinea l'hardware dai file YAML e lo mostra")
+    pl.add_argument("--solo-lettura", action="store_true", dest="solo_lettura",
+                    help="mostra soltanto, senza riallineare")
+    pl.set_defaults(func=cmd_siti)
 
     args = p.parse_args()
     args.func(args)

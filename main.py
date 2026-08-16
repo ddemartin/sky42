@@ -34,6 +34,7 @@ from services.scheduler import scheduler  # noqa: E402
 # La sola importazione registra le rotte con i decoratori @ui.page.
 import gui.pages.home  # noqa: E402,F401
 import gui.pages.catalogo  # noqa: E402,F401
+import gui.pages.osservatori  # noqa: E402,F401
 import gui.pages.pianificatore  # noqa: E402,F401
 import gui.health  # noqa: E402,F401  registra GET /health sul FastAPI di NiceGUI
 
@@ -61,6 +62,15 @@ if __name__ in {"__main__", "__mp_main__"}:
 
     # Crea lo schema al primo avvio e applica le migrazioni mancanti.
     init_db()
+
+    # L'hardware descritto negli YAML deve essere nel database prima che si
+    # apra una pagina: i file sono la fonte di verità e un `git pull` non deve
+    # richiedere che qualcuno si ricordi di premere un pulsante. Costa
+    # millisecondi ed è idempotente; se un file è rotto, lo dice il log e il
+    # servizio parte lo stesso.
+    from services.sites_service import startup_reconcile  # noqa: E402
+
+    startup_reconcile()
 
     # Il pianificatore sta dentro questo processo: un cron separato che apre il
     # database mentre l'app gira sarebbe un secondo scrittore su SQLite.

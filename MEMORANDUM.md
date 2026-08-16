@@ -991,6 +991,63 @@ a blocchi di oggetti — non per velocità, ma perché il Mac mini fa girare alt
 
 ---
 
+## 2026-08-16 — il reconcile dei siti: verifica tutto, poi scrive, e non cancella
+
+`core/sites/reconcile.py` porta `config/sites/*.yml` nelle quattro tabelle
+dell'hardware. Tre scelte, tutte pagate da qualcosa che sarebbe andato storto.
+
+**Si verificano tutti i file prima di scriverne uno.** Il reconcile legge e
+valida l'intera cartella, e solo dopo apre una transazione. L'alternativa —
+validare e scrivere file per file — sembra più semplice finché il secondo file
+è rotto: allora il database resta con metà configurazione nuova e metà vecchia,
+e non c'è nessun errore che lo dica dopo. Un test lo fissa: con un file
+invalido nella cartella, `observatory` resta vuota.
+
+**Si scrive solo ciò che è davvero cambiato.** Un `UPDATE ... WHERE code=?`
+incondizionato riesce sempre, e il rendiconto direbbe «4 aggiornati» a ogni
+giro anche senza che nessuno abbia toccato un file. Siccome il reconcile gira
+**a ogni avvio** — i file sono la fonte di verità e un `git pull` non deve
+dipendere da qualcuno che si ricorda di premere un pulsante — un rendiconto che
+grida sempre non lo legge più nessuno. Ora il secondo reconcile di fila
+restituisce tre liste vuote, e il confronto sui reali è tollerante (1e-12
+relativo) perché un float riletto da SQLite dev'essere lo stesso numero.
+
+**Chi sparisce dallo YAML viene disattivato, mai cancellato** (regola 3), e
+`valid_to` si scrive **solo se è vuoto** (`COALESCE`): la data di dismissione è
+quella della prima volta che ce ne siamo accorti, non quella dell'ultimo
+riavvio. Senza il `COALESCE` ogni reconcile la sposterebbe a oggi, e fra due
+anni «da quando quel setup non è più in uso» risponderebbe «da stamattina».
+Il test verifica anche che l'`id` non cambi: `observation_log` punta lì.
+
+**Un campo sconosciuto è un errore, non un campo ignorato.** `latitide: -30.47`
+con l'YAML permissivo diventa un osservatorio all'equatore con `latitude` a
+zero — cioè notti calcolate per il posto sbagliato, senza nessun errore da
+nessuna parte. La validazione è una tabella dichiarativa per entità (nome,
+tipo, default) e rifiuta ciò che non riconosce, come già fatto per il formato
+FORTRAN di ASTORB: un posto solo da guardare quando il formato cambia.
+
+**Il file non sovrascrive le misure.** Se un setup ha righe in
+`setup_calibration`, il reconcile lascia il `vlim_ref` che c'è nel database e
+lo dichiara nel rendiconto. `vlim_ref` nello YAML è una stima iniziale; la
+calibrazione è il punto in cui il sistema smette di indovinare, e riportarla
+indietro al primo `git pull` sarebbe buttare via una notte di lavoro.
+
+**Un errore di configurazione non impedisce l'avvio.** Viene registrato nel log
+e nella riga di `job_run`, e la pagina Osservatori lo mostra. Un servizio che
+si rifiuta di partire per un campo storto, alle tre di notte, non risponde
+nemmeno per dirti cos'ha.
+
+**Scala e campo restano derivati, e la pagina li mostra accanto ai loro
+ingredienti.** `pixel_scale = 206.265 · pixel_um · bin / (focale · riduttore)`,
+`fov = scala · (pixel / bin) / 60`. Il binning compare due volte perché fa due
+cose opposte — allarga il pixel e ne riduce il numero — e infatti il campo non
+cambia: c'è un test apposta, perché è l'errore che si fa scrivendo la formula a
+memoria. Verifica indipendente sul setup reale: 36,0 mm di sensore su 4540 mm
+di focale sono 36/4540 rad = 27,3′, e il modulo dà 27,27′ × 18,19′ con
+0,342″/px in bin 2.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

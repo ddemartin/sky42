@@ -55,19 +55,20 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 |---|---|---|
 | schema del database | ✅ | [docs/schema.sql](docs/schema.sql), commentato |
 | modelli e formule | ✅ | [docs/modelli.md](docs/modelli.md), con le fonti |
-| configurazione dei siti in YAML | ✅ progetto | un file per osservatorio, [esempio](config/sites/cile-rio-hurtado.yml) |
+| configurazione dei siti in YAML | ✅ | un file per osservatorio, [esempio](config/sites/cile-rio-hurtado.yml): è la fonte di verità, il database la indicizza |
 | download condizionato (ETag, scrittura atomica) | ✅ | 280 MB non si riscaricano per scoprire che non sono cambiati |
 | import MPCORB extended | ✅ | la fonte: 1.556.465 oggetti in 84 s, JSON in streaming |
 | import ASTORB | ✅ | lo strato CEU: 1.556.169 agganciati in 15 s, 808 fuori catalogo MPC |
 | import CometEls | ✅ | 954 comete, con le iperboliche trattate come tali |
 | Tisserand e derivati orbitali | ✅ | calcolati all'import, indicizzati |
 | pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
-| riga di comando (`cli.py ingest`, `cli.py stato`) | ✅ | gli stessi moduli dell'interfaccia |
+| riga di comando (`cli.py ingest`, `stato`, `siti`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
 | recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
-| reconcile dei siti (sito/telescopio/camera/setup) | ⏳ M1 | scala e campo derivati dalla focale, mai scritti a mano |
+| reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
+| pagina Osservatori | ✅ | `/osservatori`: hardware, derivati ottici e limiti, con riallineamento dai file |
 | solutore di Keplero vettoriale | ✅ | `core/orbits/kepler.py`: 14.000 orbite × 730 giorni in 2,4 s; verità contro Horizons su quattro coniche |
 | screening 24 mesi + back-propagation 15 anni | ⏳ M1 | tracce in BLOB, statistiche in `target_stats` |
 | notte, Sole, Luna, crepuscoli | ⏳ M1 | Skyfield + DE440s, per sito |
@@ -123,6 +124,7 @@ Il primo riempimento del catalogo (circa 280 MB da scaricare, 100 s di CPU):
 ```bash
 .venv/bin/python cli.py ingest all     # oppure il pulsante nella pagina Catalogo
 .venv/bin/python cli.py stato          # cosa c'è nel database
+.venv/bin/python cli.py siti           # riallinea l'hardware dagli YAML e lo mostra
 ```
 
 Test: `.venv/bin/python -m pytest` — girano su una cartella dati temporanea,
@@ -144,6 +146,7 @@ curl -s localhost:8242/health          # 'ok', e l'età del catalogo in ore
 ```bash
 docker compose exec sky42 python cli.py ingest all
 docker compose exec sky42 python cli.py stato
+docker compose exec sky42 python cli.py siti
 ```
 
 Host e container che scrivono insieme sullo stesso file SQLite attraverso il

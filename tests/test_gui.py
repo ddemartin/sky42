@@ -93,3 +93,42 @@ async def test_pianificatore_si_disegna_anche_da_fermo(user: User, db):
     await user.should_see("fermo")
     await user.should_see("Backup")
     await user.should_see("Nessuna copia ancora")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.osservatori")
+async def test_osservatori_mostra_i_derivati(user: User, db, monkeypatch, tmp_path):
+    """La pagina esiste per far vedere scala e campo *calcolati*: se mostrasse
+    solo quello che c'è nel file, non servirebbe a niente."""
+    import textwrap
+
+    from core import config
+    from tests.test_sites import SITO
+    from services import sites_service
+
+    siti = tmp_path / "sites"
+    siti.mkdir()
+    (siti / "cile.yml").write_text(textwrap.dedent(SITO), encoding="utf-8")
+    monkeypatch.setattr(config, "SITES_DIR", siti)
+    sites_service.run_reconcile()
+
+    await user.open("/osservatori")
+    await user.should_see("Río Hurtado, Cile")
+    await user.should_see("cielo allo zenit 21.80 mag/arcsec²")
+    await user.should_see("Scala e campo non stanno nei file")
+
+    # Il contenuto delle tabelle non è testo della pagina (Quasar lo disegna
+    # nel browser), quindi si guarda la riga che la pagina ha costruito: è lì
+    # che si vede se i derivati sono arrivati fin qui.
+    righe = [r for t in user.find(ui.table).elements for r in t.rows]
+    setup = next(r for r in righe if r.get("code") == "rc700-qhy600-bin2")
+    assert setup["scala"] == "0.342"            # arcsec/px, derivata
+    assert setup["campo"] == "27.3 × 18.2"      # arcmin, derivato
+    assert setup["f"] == "6.5"                  # 4540/700
+    assert setup["vlim"].startswith("21.3 / 20.8 astr.")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.osservatori")
+async def test_osservatori_regge_il_database_vuoto(user: User, db):
+    await user.open("/osservatori")
+    await user.should_see("Nessun sito in archivio")
+    await user.should_see("mai riallineato")

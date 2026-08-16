@@ -21,7 +21,7 @@ FUNCTIONS = [
      "desc": "Comete e candidati cometari: geometria, perielio, finestra osservativa."},
     {"key": "candidati", "title": "Candidati MPC", "icon": "new_releases", "route": None,
      "desc": "NEOCP, PCCP e MPEC: nuovi candidati e il loro destino."},
-    {"key": "osservatori", "title": "Osservatori", "icon": "photo_camera", "route": None,
+    {"key": "osservatori", "title": "Osservatori", "icon": "photo_camera", "route": "/osservatori",
      "desc": "Siti, telescopi, camere e setup, con i limiti misurati sul campo."},
     {"key": "pianificatore", "title": "Pianificatore", "icon": "schedule", "route": "/pianificatore",
      "desc": "Cosa gira da solo: aggiornamenti, backup, manutenzione. Con esito e prossimo giro."},
