@@ -196,6 +196,8 @@ def cmd_candidati(args) -> None:
         for lista in (["NEOCP", "PCCP"] if args.lista == "tutte" else [args.lista]):
             print(json.dumps(cand.poll(lista, force=args.force), indent=2,
                              ensure_ascii=False))
+        print(json.dumps(cand.poll_destiny(force=args.force), indent=2,
+                         ensure_ascii=False))
         print()
 
     for lista, n in cand.counts().items():
@@ -211,6 +213,14 @@ def cmd_candidati(args) -> None:
               f"V {c['v_mag']:>5.1f}  {c['n_obs']:>4} obs  "
               f"arco {c['arc_hours'] / 24:>7.2f} g  "
               f"non ripreso da {c['not_seen_days']:>6.2f} g")
+
+    chiusi = cand.resolved_candidates(limit=args.limite)
+    if chiusi:
+        print("\n— che fine hanno fatto —")
+        for c in chiusi:
+            diventato = c["resolved_desig"] or "—"
+            print(f"  {c['temp_desig']:<10} {c['list']:<6} {c['resolution']:<16} "
+                  f"{diventato:<12} {c['resolution_source'] or ''}")
 
     spariti = cand.recent_departures()
     if spariti:

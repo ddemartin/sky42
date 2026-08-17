@@ -13,11 +13,14 @@ Tre cose che il servizio fa e che vanno sapute:
   candidati farebbero mezzo milione di righe l'anno, quasi tutte identiche alla
   precedente. Si confrontano i campi che contano e si scrive solo se si sono
   mossi: la storia resta completa, il rumore no.
-* **la sparizione è un evento.** Un candidato che non è più in lista diventa
-  `still_listed = 0` con l'ora in cui ce ne siamo accorti. *Perché* sia sparito
-  — designato, identificato con un oggetto noto, scartato — lo dirà il watcher
-  MPEC; fino ad allora `resolution` resta NULL, che significa «non lo sappiamo»
-  e non «niente di interessante».
+* **la sparizione è un evento, e adesso ha anche un perché.** Un candidato che
+  non è più in lista diventa `still_listed = 0` con l'ora in cui ce ne siamo
+  accorti; `poll_destiny` legge poi la tabella dei trksub già usciti e scrive
+  *com'è finita* — designato con circolare, designato e basta, perso,
+  inesistente, o identificato con un altro candidato. Finché nessuno l'ha
+  detto, `resolution` resta NULL, che significa «non lo sappiamo ancora» e non
+  «niente di interessante»; `unknown` invece significa che l'MPC l'ha chiuso in
+  un modo che non sappiamo tradurre. Le due cose non si confondono.
 * **una lista vuota non cancella niente.** Se l'MPC risponde 200 con zero
   candidati — succede, ed è successo ad altri — chiudere novanta candidati
   insieme sarebbe un danno silenzioso. Sotto la soglia si registra e non si
@@ -28,11 +31,15 @@ from __future__ import annotations
 import logging
 
 from core.db import connect, transaction
-from core.ingest import http, neocp
+from core.ingest import http, neocp, neocp_prev
 from core.timeutil import now_iso
 from services.jobs import run_job
 
 log = logging.getLogger("sky42.candidati")
+
+# Il destino dei candidati: un job a parte, con la sua riga in `job_run`.
+JOB_DESTINY = "destiny_poll"
+DESTINY_SOURCE = ("neocp_prev", neocp_prev.URL, "neocp_prev_des.html")
 
 # La lista NEOCP tipica ha 50-100 righe; la PCCP 2-10. Una risposta che ne
 # porta zero è un guasto della sorgente molto più spesso di un cielo tranquillo:
@@ -215,6 +222,189 @@ def _insert_snapshot(conn, cand_id: int, r: dict, ora: str) -> None:
          r["arc_hours"], r["score"], r["h_mag"], r["not_seen_days"], r["raw"]))
 
 
+# --- il destino: che fine hanno fatto ---------------------------------------
+
+
+def poll_destiny(force: bool = False, local_path=None) -> dict:
+    """Legge la tabella dei trksub già usciti di lista e chiude i candidati aperti.
+
+    È la seconda metà del watcher: `poll` sa *chi c'è*, questo sa *com'è finita*.
+    La fonte non è quella prevista — non serve leggere le circolari, l'MPC
+    pubblica la corrispondenza già fatta (vedi `core/ingest/neocp_prev.py`).
+
+    **Non tocca `still_listed`.** Chi è ancora in lista lo decide `poll`, e una
+    colonna con due padroni è una colonna che prima o poi si contraddice: un
+    candidato può comparire qui e restare in lista qualche minuto, e al giro
+    dopo il polling della lista sistema da solo.
+    """
+    with run_job(JOB_DESTINY) as ctx:
+        source, url, filename = DESTINY_SOURCE
+        if local_path is not None:
+            pagina = local_path.read_text(encoding="utf-8")
+        else:
+            dl = http.fetch(source, url, filename, force=force)
+            pagina = dl.path.read_text(encoding="utf-8")
+
+        righe = neocp_prev.resolve(neocp_prev.parse(pagina))
+        esito = _apply_destiny(righe)
+        ctx.n_processed = esito["risolti"]
+        ctx.detail = esito
+        return esito
+
+
+def _apply_destiny(righe: list[dict]) -> dict:
+    """Scrive i destini, le circolari, e ritenta gli agganci al catalogo."""
+    esito = {"righe": len(righe), "risolti": 0, "senza_candidato": 0,
+             "fuori_tempo": 0, "riagganciati": 0, "mpec": 0, "per_destino": {}}
+    if not righe:
+        # La pagina ha cambiato forma, o è in manutenzione. Zero righe non
+        # chiude niente: è la stessa difesa della lista vuota di `_apply`.
+        log.warning("destino: nessuna riga letta, non tocco niente")
+        esito["sospetto"] = "pagina vuota o cambiata: nessuna chiusura"
+        return esito
+
+    ora = now_iso()
+    conn = connect()
+    try:
+        # I candidati ancora senza destino, il più recente per ogni trksub: lo
+        # stesso trksub può tornare in lista mesi dopo, e il destino di oggi
+        # riguarda l'ultimo passaggio, non il primo.
+        aperti: dict[str, dict] = {}
+        for r in conn.execute(
+                """SELECT id, temp_desig, list, first_seen FROM mpc_candidate
+                   WHERE resolution IS NULL ORDER BY first_seen"""):
+            aperti[r["temp_desig"]] = dict(r)
+
+        with transaction(conn):
+            for r in righe:
+                cand = aperti.get(r["trksub"])
+                if cand is not None and _fuori_tempo(r, cand):
+                    # Il destino è **più vecchio** del nostro avvistamento:
+                    # parla di un passaggio precedente dello stesso trksub, non
+                    # di questo. Visto il 2026-08-17 su `A11FAuF`, dichiarato
+                    # inesistente il 13 e rientrato in lista il 17 con score 100
+                    # e sei osservazioni: applicarglielo avrebbe scritto «non
+                    # esiste» su un candidato che quella notte era da guardare.
+                    esito["fuori_tempo"] += 1
+                    cand = None
+                elif cand is None:
+                    esito["senza_candidato"] += 1
+                else:
+                    _scrivi_destino(conn, cand["id"], r, ora)
+                    esito["risolti"] += 1
+                    esito["per_destino"][r["resolution"]] = \
+                        esito["per_destino"].get(r["resolution"], 0) + 1
+                if r["mpec_id"]:
+                    esito["mpec"] += _scrivi_mpec(
+                        conn, r, cand["id"] if cand else None, ora)
+
+            esito["riagganciati"] = _riaggancia(conn)
+    finally:
+        conn.close()
+
+    log.info("destino: %d righe, %d candidati chiusi (%s), %d circolari, "
+             "%d riagganciati al catalogo", esito["righe"], esito["risolti"],
+             esito["per_destino"], esito["mpec"], esito["riagganciati"])
+    return esito
+
+
+def _fuori_tempo(r: dict, cand: dict) -> bool:
+    """Il destino riguarda un passaggio **precedente** dello stesso trksub?
+
+    L'MPC riusa le designazioni temporanee: un oggetto dichiarato inesistente
+    può rientrare in lista giorni dopo con lo stesso trksub, e allora la
+    decisione vecchia non parla del candidato di adesso. Il confronto è fra
+    l'istante della decisione e il nostro primo avvistamento; senza data si
+    applica, perché una riga senza istante è comunque l'ultima cosa che l'MPC
+    ha detto di quel trksub.
+
+    Misurato il 2026-08-17: `A11FAuF`, «dne» il 13 alle 23:17, era in lista il
+    17 con score 100 e sei osservazioni. Sarebbe stato marcato «non esiste»
+    proprio la notte in cui andava guardato.
+    """
+    if not r["seen_at"] or not cand.get("first_seen"):
+        return False
+    return r["seen_at"] < cand["first_seen"]
+
+
+def _scrivi_destino(conn, candidate_id: int, r: dict, ora: str) -> None:
+    """`resolved_at` è **quando l'MPC l'ha deciso**, non quando l'abbiamo letto.
+
+    La pagina porta l'istante della decisione, ed è quello che serve fra un
+    anno per dire quanto è durato un candidato. Se manca si ripiega su adesso,
+    che è comunque un limite superiore.
+    """
+    conn.execute(
+        """UPDATE mpc_candidate
+           SET resolution=?, resolved_at=?, resolved_desig=?, resolution_source=?,
+               resolved_target_id=(SELECT id FROM target WHERE primary_desig=?),
+               updated_at=?
+           WHERE id=?""",
+        (r["resolution"], r["seen_at"] or ora, r["resolved_desig"],
+         r["resolution_source"], r["resolved_desig"], ora, candidate_id))
+
+
+def _scrivi_mpec(conn, r: dict, candidate_id: int | None, ora: str) -> int:
+    """La circolare come **riferimento**, non come contenuto.
+
+    Di questa circolare sappiamo l'identificativo, l'indirizzo e di quale
+    oggetto parla — l'abbiamo saputo di rimbalzo, senza leggerla. `title`,
+    `published_at` e `body_hash` restano NULL di proposito: riempirli con
+    l'istante in cui il candidato è stato chiuso significherebbe scrivere un
+    numero plausibile e falso in una colonna che ha un significato preciso.
+    """
+    conn.execute(
+        """INSERT INTO mpec (mpec_id, url, kind, fetched_at)
+           VALUES (?,?,?,?)
+           ON CONFLICT (mpec_id) DO UPDATE SET url=COALESCE(excluded.url, url)""",
+        (r["mpec_id"], r["mpec_url"], _kind(r), ora))
+    riga = conn.execute("SELECT id FROM mpec WHERE mpec_id=?", (r["mpec_id"],)).fetchone()
+    if riga is None or not r["resolved_desig"]:
+        return 1
+    conn.execute(
+        """INSERT OR REPLACE INTO mpec_object (mpec_id_ref, designation, target_id,
+                                               candidate_id)
+           VALUES (?,?,(SELECT id FROM target WHERE primary_desig=?),?)""",
+        (riga["id"], r["resolved_desig"], r["resolved_desig"], candidate_id))
+    return 1
+
+
+def _kind(r: dict) -> str:
+    return "comet" if r["resolution"] == "confirmed_comet" else "neo"
+
+
+def _riaggancia(conn) -> int:
+    """Ritenta l'aggancio al catalogo dei candidati già risolti.
+
+    Serve perché **l'MPC designa prima di pubblicare MPCORB**: `2026 PN9` è
+    stato designato il 17 agosto alle 11:52 e quel giorno non era ancora in
+    catalogo. Senza questo secondo tentativo, `resolved_target_id` resterebbe
+    NULL per sempre proprio per gli oggetti più nuovi — cioè quelli per cui la
+    domanda «che fine ha fatto» ha più senso.
+    """
+    cur = conn.execute(
+        """UPDATE mpc_candidate
+           SET resolved_target_id=(SELECT id FROM target WHERE primary_desig=resolved_desig)
+           WHERE resolved_desig IS NOT NULL AND resolved_target_id IS NULL
+             AND EXISTS (SELECT 1 FROM target WHERE primary_desig=resolved_desig)""")
+    return cur.rowcount
+
+
+def destiny_age_hours() -> float | None:
+    """Da quante ore non si guarda il destino dei candidati."""
+    from core.timeutil import days_since
+
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT max(started_at) AS t FROM job_run WHERE job_name=? AND status='ok'",
+            (JOB_DESTINY,)).fetchone()
+    finally:
+        conn.close()
+    giorni = days_since(row["t"] if row else None)
+    return giorni * 24.0 if giorni is not None else None
+
+
 # --- i job ------------------------------------------------------------------
 
 
@@ -279,8 +469,10 @@ def history(candidate_id: int) -> list[dict]:
 def recent_departures(days: float = 7.0, limit: int = 50) -> list[dict]:
     """Chi è sparito dalla lista di recente, e non sappiamo ancora perché.
 
-    È la coda di lavoro del watcher MPEC che arriverà: finché non c'è, questa
-    lista è il promemoria di quello che stiamo *non* sapendo.
+    Resta la coda di lavoro: `poll_destiny` copre quattro giorni di storia, e
+    un candidato sparito prima che il watcher esistesse non ha più una risposta
+    da nessuna parte. Questa lista è il promemoria di quello che stiamo *non*
+    sapendo — e più resta corta, meglio sta funzionando il destino.
     """
     conn = connect()
     try:
@@ -289,6 +481,28 @@ def recent_departures(days: float = 7.0, limit: int = 50) -> list[dict]:
                WHERE still_listed = 0 AND resolution IS NULL
                  AND julianday(updated_at) > julianday('now') - ?
                ORDER BY updated_at DESC LIMIT ?""", (days, limit)).fetchall()]
+    finally:
+        conn.close()
+
+
+def resolved_candidates(days: float = 30.0, limit: int = 100) -> list[dict]:
+    """Che fine hanno fatto: i candidati chiusi di recente, con il loro perché.
+
+    Porta con sé il nome dell'oggetto in cui si è trasformato, quando c'è: un
+    trksub non dice niente a nessuno fra sei mesi, `2026 PN9` sì.
+    """
+    conn = connect()
+    try:
+        return [dict(r) for r in conn.execute(
+            """SELECT c.*, t.display_name AS target_name, t.orbit_class,
+                      m.url AS mpec_url
+               FROM mpc_candidate c
+               LEFT JOIN target t ON t.id = c.resolved_target_id
+               LEFT JOIN mpec m ON m.mpec_id =
+                    replace(c.resolution_source, 'mpec:', '')
+               WHERE c.resolution IS NOT NULL
+                 AND julianday(c.resolved_at) > julianday('now') - ?
+               ORDER BY c.resolved_at DESC LIMIT ?""", (days, limit)).fetchall()]
     finally:
         conn.close()
 

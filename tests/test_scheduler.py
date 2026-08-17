@@ -44,11 +44,14 @@ def test_ogni_lavoro_ha_una_cadenza(db):
 
 
 def test_i_watcher_girano_a_minuti_e_sono_leggeri(db):
-    """I due watcher MPC sono l'unico lavoro che **perde dati** se non gira, e
+    """I watcher MPC sono l'unico lavoro che **perde dati** se non gira, e
     devono poter girare mentre lo screening macina: quindi a minuti, e non nel
-    pool dei lavori pesanti, che ha un posto solo."""
+    pool dei lavori pesanti, che ha un posto solo.
+
+    `destiny_poll` è il terzo della famiglia: la tabella dei trksub usciti di
+    lista tiene quattro giorni, e quel che passa non torna."""
     watcher = {s.name: s for s in _jobs() if s.name.endswith("_poll")}
-    assert set(watcher) == {"neocp_poll", "pccp_poll"}
+    assert set(watcher) == {"neocp_poll", "pccp_poll", "destiny_poll"}
     for spec in watcher.values():
         assert spec.minutes and not spec.heavy
         assert spec.catchup_after_hours is not None, "al riavvio si recupera subito"

@@ -118,6 +118,15 @@ def _jobs() -> list[JobSpec]:
                 minutes=20, heavy=False, catchup_after_hours=2,
                 freshness=lambda: candidate_service.poll_age_hours("PCCP"),
                 description="la lista dei candidati cometari"),
+        # Il destino dei candidati. Ogni 30 minuti e non ogni 10 come le liste:
+        # la pagina dell'MPC non ha ETag né Last-Modified — quindi ogni giro
+        # costa 45 kB davvero — e copre quattro giorni di storia, cioè un
+        # margine enorme rispetto a mezz'ora. Un candidato sparito viene chiuso
+        # entro il giro successivo.
+        JobSpec("destiny_poll", "Destino dei candidati", candidate_service.poll_destiny,
+                minutes=30, heavy=False, catchup_after_hours=6,
+                freshness=candidate_service.destiny_age_hours,
+                description="che fine ha fatto ogni candidato uscito dalla NEOCP"),
         JobSpec("backup", "Backup dati non rigenerabili", backup_service.run_backup,
                 cron={"hour": 3}, minute=0, heavy=False,
                 description="candidati NEOCP, transizioni, osservazioni, watchlist"),

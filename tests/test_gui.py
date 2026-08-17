@@ -345,6 +345,32 @@ async def test_candidati_mostra_lista_e_spariti(user: User, candidati):
 
 
 @pytest.mark.module_under_test("gui.pages.home", "gui.pages.candidati")
+async def test_candidati_mostra_che_fine_hanno_fatto(user: User, candidati, tmp_path):
+    """Il destino in pagina: prima si chiude un candidato, poi lo si legge."""
+    from services import candidate_service
+    from tests.test_destiny import _pagina
+
+    f = tmp_path / "prev.html"
+    f.write_text(_pagina(), encoding="utf-8")
+    candidate_service.poll_destiny(local_path=f)
+
+    await user.open("/candidati")
+    await user.should_see("Che fine hanno fatto")
+    # E la lista di quel che non si sa resta, perché non è vuota: la pagina non
+    # deve far credere di sapere tutto.
+    await user.should_see("Spariti dalla lista")
+
+    tabelle = user.find(ui.table).elements
+    righe = [r for t in tabelle for r in t.rows if "destino" in r]
+    assert righe, "la tabella dei destini è stata costruita"
+    neo = next(r for r in righe if r["desig"] == "ST26H52")
+    assert neo["destino"] == "NEO confermato"
+    assert neo["diventato"] == "2026 PN9"
+    assert neo["fonte"] == "mpec:2026-Q11"
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.candidati")
 async def test_candidati_regge_il_database_vuoto(user: User, db):
     await user.open("/candidati")
     await user.should_see("Nessun candidato in lista")
+    await user.should_see("Nessun candidato ancora chiuso")

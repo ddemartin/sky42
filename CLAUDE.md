@@ -85,7 +85,10 @@ core/
 ├── ingest/cometels.py  le comete. q e Tp, mai a e M
 ├── ingest/neocp.py     ✅ NEOCP e PCCP. Il **testo**, non il JSON: i due
 │                       prodotti dell'MPC non concordano, e PCCP ha solo quello
-├── ingest/mpec.py      ⏳ M2, il destino dei candidati
+├── ingest/neocp_prev.py ✅ il **destino** dei candidati. Non le circolari: la
+│                       tabella dei trksub usciti di lista, che l'MPC pubblica
+│                       già risolta. Il vocabolario degli stati è misurato,
+│                       non documentato — e `na` resta con il codice grezzo
 ├── orbits/elements.py  derivati e **Tisserand**. L'unico posto dove Tj si calcola
 ├── orbits/kepler.py    ✅ il solutore vettoriale: array di elementi × array di
 │                       epoche, nessun ciclo Python sugli oggetti
@@ -163,7 +166,7 @@ job, ogni job idempotente e con una riga in `job_run`.
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
 | `neocp_poll` | 10 min | lista NEOCP → candidati e snapshot |
 | `pccp_poll` | 20 min | lista PCCP |
-| `mpec_poll` | ⏳ M2, 30 min | circolari recenti, e il **destino** dei candidati |
+| `destiny_poll` | 30 min | il **destino** dei candidati usciti dalla NEOCP |
 | `screening` | 02:10 UTC | propagazione 24 mesi avanti + 15 anni indietro, `target_stats` |
 | `radar_states` | 02:40 UTC | stati e transizioni per (target × setup), con isteresi |
 | `night_plan` | ogni 6 h, :50 | crepuscoli e Luna, due settimane avanti per sito |
@@ -324,8 +327,9 @@ fra siti sta dentro la riga dell'oggetto, con i setup da cui non si vede ancora
 in elenco. La pagina ha il suo gemello JSON (`/api/stanotte`), che chiama la
 stessa funzione e non una seconda query.
 
-Il prossimo lavoro è **M2**: il watcher MPEC, cioè il destino dei candidati
-NEOCP, e poi il confine verso JPL con budget e cache.
+Di **M2** è fatto il destino dei candidati (`destiny_poll`, 17 agosto sera): la
+NEOCP è un cerchio chiuso — chi entra, come cambia, e come è finita. Restano il
+confine verso JPL con budget e cache, e il radar dedicato alle comete.
 
 Due cose da tenere d'occhio: `screening_track` ha portato il database da 1,17 a
 1,43 GB e cresce linearmente con la popolazione monitorata (voce nel

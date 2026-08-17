@@ -1,12 +1,14 @@
 """Pagina Candidati: la lista NEOCP e PCCP, e la storia che nessun altro tiene.
 
-Serve a due domande diverse, e per questo ci sono due elenchi:
+Serve a tre domande diverse, e per questo ci sono tre elenchi:
 
 * **chi è in lista adesso**, ordinato per quanto è urgente — score alto e
   «non ripreso da» che cresce vuol dire un candidato che si sta per perdere;
-* **chi è sparito**, che è la parte che l'MPC non conserva. Finché non c'è il
-  watcher MPEC, il destino resta ignoto e la pagina lo dice invece di far
-  finta che quei candidati non siano mai esistiti.
+* **che fine hanno fatto** quelli usciti: NEO confermato con la sua circolare,
+  pianetino designato, perso, inesistente. È la parte che l'MPC pubblica in una
+  tabella che tiene quattro giorni, e che dopo non esiste più da nessuna parte;
+* **chi è sparito e non ha ancora una risposta**: la lista di quello che
+  stiamo non sapendo. Più resta corta, meglio funziona il controllo.
 
 Nessun calcolo qui dentro: le liste arrivano da `candidate_service`.
 """
@@ -17,7 +19,8 @@ import logging
 from nicegui import run, ui
 
 from core.timeutil import days_since
-from gui.layout import cols, fmt_age, fmt_dec_dms, fmt_int, fmt_num, fmt_ra_hms, header, table
+from gui.layout import (cols, fmt_age, fmt_dec_dms, fmt_duration, fmt_int, fmt_num,
+                        fmt_ra_hms, header, table)
 from services import candidate_service as cand
 
 log = logging.getLogger("sky42.gui.candidati")
@@ -29,6 +32,28 @@ SCORE_ALTO = 90
 # NEOCP hanno archi di ore, e due giorni senza osservazioni sono spesso la
 # differenza fra un recupero e un oggetto perso.
 IN_FUGA_GIORNI = 2.0
+
+# I sei destini dello schema, in italiano. `unknown` non è «non lo sappiamo
+# ancora» (quello è NULL, e quei candidati stanno nell'altro elenco): è «l'MPC
+# l'ha chiuso in un modo che non sappiamo tradurre».
+DESTINI = {
+    "confirmed_neo": "NEO confermato",
+    "confirmed_comet": "cometa confermata",
+    "known_object": "pianetino designato",
+    "not_confirmed": "perso, mai confermato",
+    "removed": "tolto dalla lista",
+    "unknown": "chiuso, motivo non tradotto",
+}
+
+
+def _durata(c: dict) -> str:
+    """Quanto è rimasto in lista: dal primo avvistamento alla decisione dell'MPC."""
+    from core.timeutil import days_since
+
+    if not c["resolved_at"] or not c["first_seen"]:
+        return "—"
+    giorni = days_since(c["first_seen"]) - (days_since(c["resolved_at"]) or 0)
+    return fmt_duration(giorni) if giorni > 0 else "—"
 
 
 @ui.page("/candidati")
@@ -44,6 +69,7 @@ def candidati_page() -> None:
         ).classes("text-xs opacity-60 -mt-3")
 
         aperti_box = ui.column().classes("w-full gap-2")
+        destino_box = ui.column().classes("w-full gap-2")
         spariti_box = ui.column().classes("w-full gap-2")
 
     def redraw() -> None:
@@ -95,18 +121,50 @@ def candidati_page() -> None:
                 )
                 _riassunto(righe)
 
+        destino_box.clear()
+        with destino_box:
+            chiusi = cand.resolved_candidates()
+            ui.label("Che fine hanno fatto").classes("text-xl font-bold")
+            if not chiusi:
+                ui.label("Nessun candidato ancora chiuso. La tabella dell'MPC "
+                         "tiene quattro giorni, e il controllo gira ogni "
+                         "mezz'ora.").classes("opacity-70")
+            else:
+                ui.label(
+                    "Dalla tabella dei trksub usciti di lista: designato con "
+                    "circolare, designato e basta (un pianetino ordinario, che è "
+                    "come finiscono quasi tutti), perso, inesistente, o "
+                    "identificato con un altro candidato."
+                ).classes("text-xs opacity-60")
+                table(
+                    cols(("desig", "designazione"), ("lista", "lista"),
+                         ("destino", "destino"), ("diventato", "diventato"),
+                         ("classe", "classe"), ("quando", "chiuso il"),
+                         ("durata", "in lista per"), ("fonte", "fonte")),
+                    [{
+                        "desig": c["temp_desig"], "lista": c["list"],
+                        "destino": DESTINI.get(c["resolution"], c["resolution"]),
+                        "diventato": c["target_name"] or c["resolved_desig"] or "—",
+                        "classe": c["orbit_class"] or "—",
+                        "quando": (c["resolved_at"] or "")[:16].replace("T", " "),
+                        "durata": _durata(c),
+                        "fonte": c["resolution_source"] or "—",
+                    } for c in chiusi],
+                )
+
         spariti_box.clear()
         with spariti_box:
             spariti = cand.recent_departures()
-            ui.label("Spariti dalla lista negli ultimi sette giorni").classes(
+            ui.label("Spariti dalla lista, e ancora senza risposta").classes(
                 "text-xl font-bold")
             if not spariti:
-                ui.label("Nessuno.").classes("opacity-70")
+                ui.label("Nessuno: ogni candidato uscito di lista ha il suo "
+                         "perché.").classes("opacity-70")
                 return
             ui.label(
-                "Designati, identificati con un oggetto noto, o scartati per "
-                "osservazioni insufficienti: quale dei tre lo dirà il watcher MPEC. "
-                "Finché non c'è, questa lista è quello che stiamo non sapendo."
+                "La tabella dell'MPC copre quattro giorni: chi è sparito prima "
+                "che il controllo esistesse non ha più una risposta da nessuna "
+                "parte. Questa lista è quello che stiamo non sapendo."
             ).classes("text-xs opacity-60")
             table(
                 cols(("desig", "designazione"), ("lista", "lista"),
@@ -139,6 +197,12 @@ def candidati_page() -> None:
                 ui.notify(f"{lista}: {esito['in_lista']} in lista, "
                           f"{esito['nuovi']} nuovi, {esito['spariti']} spariti",
                           type="positive")
+            # Le liste dicono chi c'è; la tabella dei trksub usciti dice com'è
+            # finita. Interrogare l'MPC a mano e non chiedere anche quello
+            # lascerebbe la pagina a metà.
+            destino = await run.io_bound(cand.poll_destiny)
+            ui.notify(f"destino: {destino['risolti']} candidati chiusi",
+                      type="positive")
         except Exception as exc:  # la pagina non deve morire se l'MPC non risponde
             log.exception("polling manuale fallito")
             ui.notify(f"non ha funzionato: {exc}", type="negative")

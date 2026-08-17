@@ -2249,6 +2249,100 @@ direzioni opposte.
 
 ---
 
+## 2026-08-17 (sera) — il destino dei candidati, e la fonte che non era quella prevista
+
+M2 comincia dal pezzo che chiude il cerchio della NEOCP: adesso, quando un
+candidato sparisce, si sa **perché**. Ma il modo è diverso da quello progettato,
+e la differenza vale più della funzione.
+
+**Il piano era leggere le circolari.** `mpec_poll` in CLAUDE.md, `core/ingest/
+mpec.py`, le tabelle `mpec` e `mpec_object`: scaricare le MPEC recenti, aprirle
+una per una, cercare dentro il testo le designazioni temporanee. Sarebbe stato
+un parser fragile su documenti in prosa, e avrebbe coperto solo i candidati
+*promossi* — di quelli persi o scartati le circolari non parlano, che è
+esattamente metà della domanda.
+
+Non serve. L'MPC pubblica la corrispondenza **già fatta**, in tabella:
+`/mpcops/neocp/neocp_prev_des/`, cinque colonne — trksub, designazione IAU,
+stato, riferimento, istante — e circa cento righe, cioè quattro giorni di
+storia. Ci si arriva solo dalla voce di menu: il vecchio indirizzo documentato
+ovunque, `iau/NEO/PreviousNEOCPObjects.html`, risponde **404**. È il motivo per
+cui si è andati a guardare invece di scrivere il parser previsto, e la mezz'ora
+spesa a cercare la pagina vera ha risparmiato un modulo intero.
+
+**Il vocabolario è misurato, perché non è documentato.** Su cento righe del
+2026-08-17: 63 con designazione (di cui 33 con una circolare), `lost` 17, `na`
+8, `dne` 7, e cinque righe il cui «stato» non è una parola ma **un altro
+trksub** — due candidati che erano lo stesso oggetto. La traduzione:
+
+| pagina MPC | `resolution` | perché |
+|---|---|---|
+| designazione + MPEC | `confirmed_neo` / `confirmed_comet` | l'MPC gli ha dedicato una circolare |
+| designazione, nessun MPEC | `known_object` | ha un numero di catalogo ma nessuna circolare: un pianetino ordinario, che è come finiscono quasi tutti |
+| `lost` | `not_confirmed` | nessuno l'ha più ripreso |
+| `dne` | `removed` | «does not exist» |
+| `na` | `removed` | significato **non verificato** |
+| un altro trksub | quello dell'altro | un salto solo, o due righe che si rimandano manderebbero in cerchio un job notturno |
+
+`na` è il caso che vale la pena spiegare: probabilmente «not an asteroid», ma
+l'MPC non pubblica una legenda e non lo si inventa. Finisce in `removed`, che è
+la sola cosa certa — è uscito di lista senza designazione — con il codice grezzo
+in `resolution_source` (`neocp_prev:na`). Il giorno in cui si saprà cosa
+significa sarà una rilettura di una colonna, non un dato perso.
+
+Per lo stesso motivo `unknown` e NULL restano **due cose diverse**: NULL è «non
+l'abbiamo ancora cercato», `unknown` è «l'MPC l'ha chiuso in un modo che non
+sappiamo tradurre».
+
+**Le tabelle `mpec` si riempiono lo stesso, ma come riferimento.**
+Identificativo, indirizzo e di quale oggetto parla la circolare — saputo di
+rimbalzo, senza leggerla. `title`, `published_at` e `body_hash` restano NULL di
+proposito: riempire `published_at` con l'istante in cui il candidato è stato
+chiuso sarebbe un numero plausibile e falso in una colonna dal significato
+preciso. L'indirizzo si prende dal collegamento nella cella; la regola per
+derivarlo esiste come riserva ed è verificata, perché **sopra il 99 il numero
+non è decimale**: `2026-P114` non è `K26P114` (404) ma `K26PB4`, come `K26PA0`
+per il 100.
+
+### Il caso che ha cambiato il codice: `A11FAuF`
+
+Al primo giro sul servizio vero, cinque candidati chiusi su cento righe. Quattro
+tornavano al minuto: `P22pq2q` visto da noi alle 07:50 e diventato **2026 PN9**
+con la circolare MPEC 2026-Q11 alle 11:52; due persi e uno inesistente, tutti
+decisi entro un minuto dall'ultima volta che li avevamo visti in lista. La
+corrispondenza fra i due prodotti dell'MPC, misurata così, è quanto di meglio si
+potesse chiedere.
+
+Il quinto no. `A11FAuF` risultava dichiarato **inesistente il 13 agosto alle
+23:17** — e alle 12:20 del 17 era in lista, con score 100 e sei osservazioni.
+Non è un errore dell'MPC: **i trksub si riusano**, e quella decisione riguardava
+un passaggio precedente dello stesso codice. Applicandola, il job avrebbe
+scritto «non esiste» su un candidato che quella notte era da guardare.
+
+Da qui la regola, che senza i dati veri non sarebbe venuta in mente: **un
+destino più vecchio del nostro primo avvistamento non è il suo**. Si conta in
+`fuori_tempo` e non si applica. La riga già scritta è stata riportata a NULL a
+mano, con la condizione `resolved_at < first_seen` che identifica esattamente le
+righe che il difetto poteva aver toccato — una sola.
+
+Due scelte minori, per lo stesso motivo di sempre: `still_listed` resta di
+**un solo padrone** (il polling della lista), perché una colonna con due padroni
+prima o poi si contraddice — e infatti `A11FAuF` era chiuso *e* in lista. E
+l'aggancio a `target` si **ritenta a ogni giro**: l'MPC designa prima di
+pubblicare MPCORB, e `2026 PN9` il giorno della sua designazione non era ancora
+in catalogo. Senza il secondo tentativo resterebbe scollegato proprio l'oggetto
+più nuovo, cioè quello per cui la domanda «che fine ha fatto» ha più senso.
+
+**Cadenza: 30 minuti.** La pagina non ha né ETag né Last-Modified — verificato —
+quindi ogni giro costa 45 kB davvero, contro i 10 kB con ETag delle liste. Ma
+tiene quattro giorni di storia, cioè un margine enorme rispetto a mezz'ora:
+un candidato sparito viene chiuso entro il giro successivo. Scartata la ricerca
+per singolo oggetto, che c'è (il campo in cima alla pagina) ma è una POST Django
+con form e token: una seconda strada, più fragile, per una domanda a cui la
+prima risponde già.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

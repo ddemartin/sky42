@@ -108,7 +108,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | incertezza posizionale vs campo, mosaico | ✅ | 3σ di CEU contro il lato corto del campo; CEU propagata a oggi in `target_stats.ceu_now_arcsec` |
 | watcher NEOCP | ✅ | `neocp_poll` ogni 10 min: candidati, evoluzione, sparizioni. La storia che l'MPC non conserva |
 | watcher PCCP | ✅ | `pccp_poll` ogni 20 min, stesso formato e stessa storia |
-| watcher MPEC e destino dei candidati | ⏳ M2 | da candidato a oggetto confermato, o a niente. Finché non c'è, `resolution` resta NULL e la pagina lo dice |
+| destino dei candidati | ✅ | `destiny_poll` ogni 30 min: da candidato a NEO confermato con la sua circolare, pianetino designato, perso o inesistente. La fonte non è il testo delle MPEC ma la tabella dei trksub usciti di lista, che l'MPC pubblica già risolta |
 | comete: elementi MPC e radar dedicato | ⏳ M2 | ordinate per geometria, non per magnitudine |
 | verifica con Horizons sulla shortlist | ⏳ M2 | con budget giornaliero e cache; ogni chiamata a log |
 | validazione due corpi contro Horizons | ⏳ M2 | 50 oggetti/mese a 1, 6, 12, 24 mesi (domanda aperta 2) |
@@ -255,6 +255,7 @@ pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
 | `radar_states` | ogni giorno 02:40 UTC | stati e transizioni per (target × setup) |
 | `neocp_poll` | ogni 10 min | candidati NEOCP: nuovi, evoluzione, sparizioni |
 | `pccp_poll` | ogni 20 min | candidati cometari PCCP |
+| `destiny_poll` | ogni 30 min | che fine ha fatto ogni candidato uscito dalla NEOCP |
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
 
 Ogni 6 ore e non a un orario fisso perché le sorgenti pubblicano a orari che si
