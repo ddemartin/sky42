@@ -167,6 +167,28 @@ def cmd_radar(args) -> None:
               f"{t['from_state']} → {t['to_state']}  {v}")
 
 
+def cmd_finestre(args) -> None:
+    from services import window_service as win
+
+    if args.oggetto:
+        dati = win.tonight(args.oggetto, night_date=args.notte)
+        if dati is None:
+            raise SystemExit(f"«{args.oggetto}» non è in catalogo")
+        t = dati["target"]
+        print(f"{t['display_name']}  [{t['kind']}]  H={t['h_mag']}")
+        for w in dati["windows"]:
+            quando = ("—" if not w["useful"]
+                      else f"{w['useful_hours']:.1f} h")
+            print(f"  {w['site_code']}/{w['setup_code']:<28} {w['night_date']}  "
+                  f"utile {quando:>7}  V {w.get('v_pred') or float('nan'):.1f}  "
+                  f"lim {w.get('eff_vlim') or float('nan'):.1f}  "
+                  f"{w['grade']}  {w['motivo']}")
+        return
+
+    esito = win.run_windows(n_nights=args.notti, limit=args.limite)
+    print(json.dumps(esito, indent=2, ensure_ascii=False))
+
+
 def cmd_candidati(args) -> None:
     from services import candidate_service as cand
 
@@ -237,6 +259,16 @@ def main() -> None:
                     help="mostra soltanto, senza ricalcolare")
     pr.add_argument("--limite", type=int, default=20, help="quante transizioni mostrare")
     pr.set_defaults(func=cmd_radar)
+
+    pf = sub.add_parser("finestre",
+                        help="calcola le finestre in massa, o le mostra per un oggetto")
+    pf.add_argument("--oggetto", help="una scheda sola, senza scrivere niente")
+    pf.add_argument("--notte", help="data della sera, '2026-08-20' (con --oggetto)")
+    pf.add_argument("--notti", type=int, default=None,
+                    help="quante notti avanti calcolare (default 3)")
+    pf.add_argument("--limite", type=int, default=None,
+                    help="ferma la popolazione ai primi N oggetti (per provare)")
+    pf.set_defaults(func=cmd_finestre)
 
     pk = sub.add_parser("candidati", help="polling NEOCP/PCCP e stato dei candidati")
     pk.add_argument("--lista", choices=["tutte", "NEOCP", "PCCP"], default="tutte")

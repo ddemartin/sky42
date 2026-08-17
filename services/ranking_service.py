@@ -43,6 +43,31 @@ def active_profile(target_kind: str | None = None) -> Profile:
     return Profile.from_row(dict(row))
 
 
+def context_from_row(row: dict) -> dict:
+    """Il contesto quando le colonne sono **già state lette**, tutte insieme.
+
+    Il job delle finestre legge la popolazione con una query sola che porta con
+    sé statistiche e watchlist: chiedere le stesse tre tabelle un oggetto alla
+    volta sarebbe trentamila query per un giro. Le chiavi assenti restano
+    assenti — una feature che non si può calcolare è `None` e sparisce dalla
+    media, non vale zero.
+    """
+    ctx = {
+        "tisserand_j": row.get("tisserand_j"),
+        "arc_days": row.get("arc_days"),
+        "n_oppositions": row.get("n_oppositions"),
+        "watchlist": bool(row.get("watchlist")),
+    }
+    # Lo screening ha già fatto questo conto; da `last_obs_date` è il ripiego
+    # per gli oggetti che lo screening non copre.
+    anni = row.get("years_since_last_obs")
+    ctx["years_since_last_obs"] = (anni if anni is not None
+                                   else years_between(row.get("last_obs_date")))
+    if "years_since_good_apparition" in row:
+        ctx["years_since_good_apparition"] = row["years_since_good_apparition"]
+    return ctx
+
+
 def target_context(target: dict) -> dict:
     """Quel che serve alle feature d'interesse, messo insieme da tre posti.
 

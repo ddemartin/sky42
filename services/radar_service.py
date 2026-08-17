@@ -22,7 +22,7 @@ import logging
 
 from core.db import connect, transaction
 from core.radar import states
-from core.timeutil import now_iso
+from core.timeutil import now_iso, now_jd_tdb
 from core.visibility.instrument import Setup
 from core.visibility.limits import reference_limit
 from core.visibility.site import Site
@@ -80,24 +80,45 @@ def _previous_states(conn) -> dict[tuple[int, int | None], dict]:
 def _useful_hours(conn) -> dict[tuple[int, int | None], float]:
     """Ore utili della **notte in corso**, per coppia (target, setup).
 
-    `night` è piena due settimane in avanti, quindi «l'ultima notte calcolata»
-    sarebbe fra quattordici giorni: la notte che interessa è la più recente non
-    ancora futura. Prenderla con `max(night_date)` darebbe stati giudicati su
-    una notte che deve ancora arrivare, e lo farebbe in silenzio.
+    «La notte in corso» è una domanda per sito, non per il database: alle 02:30
+    UTC a Río Hurtado sono le 22:30 di *ieri sera*, e la notte che interessa è
+    quella cominciata ieri. Chiedere `max(night_date) <= date('now')` darebbe la
+    notte che deve ancora cominciare, e lo farebbe in silenzio — un turno di
+    ritardo su ogni stato, senza nessun errore. Si passa quindi da
+    `night_date_for`, che è la stessa funzione con cui il job ha scritto le
+    finestre.
 
-    Oggi `observation_window` non la scrive nessuno — le finestre le calcola la
-    pagina Oggetto e non le salva — quindi la mappa è vuota e la macchina a
-    stati decide sulla sola magnitudine, che è ciò che `useful_hours=None`
-    significa. Quando arriverà il job che scrive le finestre in massa, il
-    criterio sulla durata si accenderà da solo senza che qui cambi niente.
+    Il rollup (`setup_id = None`) prende il **massimo** fra i setup: è lo stesso
+    «il migliore fra tutti» con cui si sceglie il suo V_ref, e la domanda della
+    mattina è «posso riprenderlo», non «posso riprenderlo con la camera piccola».
+
+    Una coppia che non compare vale `useful_hours = None`, cioè «non lo so»: gli
+    oggetti fuori dalla fascia di guardia non hanno una finestra scritta e
+    restano giudicati sulla sola magnitudine (vedi `window_service.V_MARGIN`).
     """
-    rows = conn.execute(
-        """SELECT w.target_id, w.setup_id, w.useful_hours
-           FROM observation_window w
-           JOIN night n ON n.id = w.night_id
-           WHERE n.night_date = (SELECT max(night_date) FROM night
-                                 WHERE night_date <= date('now'))""").fetchall()
-    return {(r["target_id"], r["setup_id"]): r["useful_hours"] for r in rows}
+    from core.visibility.night import night_date_for
+    from services import sites_service
+
+    adesso = now_jd_tdb()
+    ore: dict[tuple[int, int | None], float] = {}
+    for sito in sites_service.overview():
+        setups = [r["id"] for r in sito["setups"] if r["active"]]
+        if not sito["active"] or not setups:
+            continue
+        data = night_date_for(Site.from_row(sito), adesso)
+        rows = conn.execute(
+            f"""SELECT w.target_id, w.setup_id, w.useful_hours
+                FROM observation_window w
+                JOIN night n ON n.id = w.night_id
+                WHERE n.observatory_id = ? AND n.night_date = ?
+                  AND w.setup_id IN ({','.join('?' * len(setups))})
+                  AND w.useful_hours IS NOT NULL""",
+            (sito["id"], data, *setups)).fetchall()
+        for r in rows:
+            ore[(r["target_id"], r["setup_id"])] = r["useful_hours"]
+            chiave = (r["target_id"], _ROLLUP)
+            ore[chiave] = max(ore.get(chiave, 0.0), r["useful_hours"])
+    return ore
 
 
 def run_radar() -> dict:

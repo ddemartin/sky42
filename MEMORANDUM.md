@@ -2104,6 +2104,95 @@ corretto in due minuti, ma è il genere di cosa che al primo avvio su una
 macchina nuova costerebbe mezz'ora.
 ---
 
+## 2026-08-17 (sera) — le finestre in massa: una funzione sola, e 14.730 righe in 5,7 s
+
+Il job `windows` c'è. Scrive `observation_window` per (target × setup × notte) e
+chiude l'ultimo pezzo di calcolo di M1. Quattro decisioni che vale la pena
+scrivere, perché tre di esse erano evitabili e sbagliate.
+
+**Una funzione sola, non due.** La tentazione era scrivere accanto a
+`observation_window` una versione «in massa» ottimizzata. Sarebbe stata la
+seconda implementazione della stessa fisica: due tarature da tenere allineate,
+e il giorno in cui divergono la pagina Oggetto e la dashboard dicono numeri
+diversi dello **stesso** oggetto nella **stessa** notte, senza modo di sapere a
+quale credere. Invece `observation_window` (singolare) è oggi il caso N = 1 di
+`observation_windows`, e c'è un test che lo verifica con `==` su tutto il
+dizionario, non con un `approx` su tre chiavi.
+
+**La geometria si calcola una volta per sito, non per setup.** È la regola di
+CLAUDE.md, e prima era violata: `observation_window` chiamava `altaz`,
+`sun_altitude` e `moon_state` al suo interno, quindi ogni setup ricalcolava la
+Luna. Su un oggetto non si vede; su 4.910 × 3 notti × N setup diventa il costo
+dominante. Adesso `sky_geometry(site, jd, ra, dec)` produce alt/az, airmass,
+Sole, Luna e separazione su una griglia (N oggetti × M istanti), e ogni setup ci
+applica sopra i propri limiti — che è aritmetica su array già pronti. La firma
+non accetta un `Setup`, e c'è un test che verifica **l'assenza** di quel
+parametro: è l'unico modo perché la regola non si riapra da sola fra sei mesi.
+
+**Non tutta la popolazione.** Si calcolano le finestre solo per chi sta entro
+1,5 mag sopra il `V_ref` più profondo — la stessa fascia di guardia del radar
+(`states.APPROACH_BAND`). Sul catalogo vero sono **4.910 oggetti su 14.899**.
+L'alternativa (tutti) costerebbe tre volte tanto per scrivere, ogni notte, per
+ogni setup, una riga che dice sempre la stessa cosa — «V 26, invisibile» — al
+prezzo di circa 1 kB di scomposizione ciascuna. E soprattutto il radar legge
+l'**assenza** di riga come `useful_hours = None`, cioè «non lo so», e giudica
+sulla sola magnitudine: che per un oggetto fuori banda è esattamente la
+risposta giusta. Il margine sta in `setting.windows_v_margin`, non nel codice.
+
+**Tre notti, non quattordici.** `night` è piena due settimane avanti perché
+crepuscoli e Luna non cambiano; le finestre invece dipendono da elementi
+orbitali e da `target_stats`, che si riscrivono ogni giorno. Calcolarne
+quattordici vorrebbe dire riscrivere ogni notte tredici notti che nessuno ha
+ancora guardato. La terza serve per «domani sera conviene di più».
+
+Misura sul catalogo vero, dentro il container: **4.910 oggetti × 1 setup × 3
+notti = 14.730 finestre in 5,7 s**, di cui 2.562 con finestra utile non nulla.
+Il database passa da 1,43 a 1,466 GB (+36 MB, quasi tutto `score_json`, che è
+la scomposizione e non si comprime togliendola: regola 5). Chiude la seconda
+metà della domanda aperta 3.
+
+### E il criterio sulla durata si è acceso, con una conseguenza da sapere
+
+Era la ragione del lavoro: `states.classify` riceveva `useful_hours=None` e
+declassava mai. Adesso la mappa si riempie, e **321 oggetti su 4.910 cambiano
+stato** (misurato in sola lettura, senza scrivere transizioni):
+
+```
+OBSERVABLE → OUT_OF_RANGE   186      PRIME → OUT_OF_RANGE   116
+PRIME      → OBSERVABLE      19
+```
+
+I 302 che finiscono OUT_OF_RANGE hanno quasi tutti `useful_hours = 0.0`: sono
+abbastanza brillanti ma **stanotte, da Río Hurtado, non si vedono** — sotto
+l'orizzonte, o dentro il crepuscolo. La conseguenza da avere chiara è che lo
+stato del radar ha cambiato significato: da «è alla portata del mio strumento»
+a «è alla portata del mio strumento **stanotte, da un sito che ho**». È quello
+che `states.py` dichiarava di voler fare fin dall'inizio, ed è la risposta
+giusta alla domanda della mattina; ma introduce una stagionalità che l'isteresi
+sulla magnitudine non copre — un oggetto che esce da congiunzione attraverserà
+0 h → 0,5 h → 2 h in poche notti, e genererà transizioni. Se il flusso risultasse
+rumoroso, la leva **non** è togliere il criterio: è distinguere «finestra corta»
+da «mai sopra l'orizzonte», che oggi finiscono nello stesso `OUT_OF_RANGE`.
+Si decide con il conteggio della domanda aperta 7, non adesso.
+
+### Due bug trovati per strada, che il job ha reso visibili
+
+Il radar leggeva le ore utili con `max(night_date) <= date('now')`. Con la
+tabella vuota non si vedeva; da stasera sì. A Río Hurtado alle 02:30 UTC sono
+le 22:30 di **ieri sera**: la notte in corso è quella di ieri, ma la query
+prendeva quella di oggi, cioè la notte che deve ancora cominciare. Un turno di
+ritardo su ogni stato, in silenzio. «Qual è la notte in corso» è una domanda
+**per sito**, e la risposta la dà `night_date_for` — la stessa funzione con cui
+il job ha scritto le finestre.
+
+E il rollup (`setup_id NULL`) non trovava mai una riga, perché le finestre sono
+scritte con `setup_id` veri: cercava una chiave che per costruzione non esiste,
+e restava sulla sola magnitudine per sempre. Adesso il rollup prende il
+**massimo** fra i setup, che è lo stesso «il migliore fra tutti» con cui si
+sceglie il suo `V_ref`.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -2125,9 +2214,10 @@ Si chiudono con numeri misurati, non con previsioni.
    2026-08-17: 18 secondi** per 14.899 oggetti, 731 epoche avanti e 548
    indietro, tracce e statistiche scritte comprese (voce sopra). Ben sotto i
    cinque minuti che erano la soglia della domanda: si rifà tutto ogni giorno,
-   e non serve dividere in popolazione monitorata e giro settimanale. Resta
-   fuori il calcolo delle **finestre** per (target × setup), che è l'altro
-   lavoro di massa e non è ancora un job: la sua misura è la prossima.
+   e non serve dividere in popolazione monitorata e giro settimanale.
+   **Completata la sera del 2026-08-17** con l'altro lavoro di massa, le
+   finestre: **5,7 s** per 14.730 righe (4.910 oggetti × 1 setup × 3 notti). I
+   due lavori pesanti della notte stanno insieme in mezzo minuto.
 4. **Il coefficiente 0.55 mag/grado del crepuscolo.** Va misurato con
    `setup_calibration` e sostituito. Oggi è una stima. **Aggiornamento
    2026-08-16:** il codice è già pronto a riceverne uno per sito
@@ -2163,7 +2253,12 @@ Si chiudono con numeri misurati, non con previsioni.
    stato iniziale non è un cambiamento), quindi la risposta arriva dal secondo
    giorno contando le righe di `state_transition` con `setup_id IS NULL`. Il
    punto di partenza: 295 PRIME, 330 OBSERVABLE, 840 FADING, 1.585 APPROACHING
-   sul rollup del setup migliore.
+   sul rollup del setup migliore. **Aggravata la sera del 2026-08-17:** con il
+   criterio sulla durata acceso, il primo giro con le finestre sposterebbe 321
+   oggetti (302 verso OUT_OF_RANGE, per finestra nulla). Quel numero è il
+   transitorio di una volta; quello che serve misurare è il flusso **dal
+   secondo giorno in poi**, perché è lì che si vede se la stagionalità delle
+   finestre genera rumore che l'isteresi sulla magnitudine non può filtrare.
 8. **Ogni quanto cambia davvero `astorb.dat`?** Il download è condizionale su
    ETag; se il file cambia ogni giorno ma le orbite che ci interessano no,
    conviene un import differenziale (`.add`/`.del`) invece di un rifacimento.

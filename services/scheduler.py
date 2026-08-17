@@ -62,7 +62,7 @@ def _jobs() -> list[JobSpec]:
     # importare i servizi in testa creerebbe un ciclo con `jobs.py`.
     from services import (backup_service, candidate_service, ingest_service,
                           maintenance_service, night_service, radar_service,
-                          screening_service)
+                          screening_service, window_service)
 
     return [
         JobSpec("mpcorb_sync", "MPCORB extended", ingest_service.sync_mpcorb,
@@ -91,6 +91,15 @@ def _jobs() -> list[JobSpec]:
                 cron={"hour": 2}, minute=10, catchup_after_hours=36,
                 freshness=screening_service.screening_age_hours,
                 description="propaga la popolazione monitorata, scrive tracce e statistiche"),
+        # Fra screening e radar, e non per comodità: legge `target_stats` (che
+        # lo screening ha appena riscritto) e pubblica le ore utili che il radar
+        # leggerà venti minuti dopo. Se non ha finito, il radar trova le
+        # finestre di ieri e lo dice il loro `computed_at`: nessuno dei due
+        # chiama l'altro.
+        JobSpec("windows", "Finestre osservative", window_service.run_windows,
+                cron={"hour": 2}, minute=20, catchup_after_hours=36,
+                freshness=window_service.windows_age_hours,
+                description="finestre e punteggio per (target × setup × notte), in massa"),
         # Mezz'ora dopo, che è molto più di quanto lo screening impieghi: se
         # per qualche motivo non ha finito, il radar legge le statistiche di
         # ieri e lo dice il loro `computed_at`. Un job non ne chiama un altro.

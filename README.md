@@ -76,7 +76,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | import CometEls | ✅ | 954 comete, con le iperboliche trattate come tali |
 | Tisserand e derivati orbitali | ✅ | calcolati all'import, indicizzati |
 | pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
-| riga di comando (`ingest`, `stato`, `siti`, `effemeride`, `screening`, `radar`) | ✅ | gli stessi moduli dell'interfaccia |
+| riga di comando (`ingest`, `stato`, `siti`, `effemeride`, `screening`, `radar`, `finestre`, `candidati`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
 | popolazione monitorata configurabile | ✅ | regole dichiarative in `setting.screening_selectors`: Tj, H, q, classe, CEU, watchlist, liste a mano. Aggiungerne una non è una modifica al codice |
 | pagina Candidati | ✅ | `/candidati`: chi è in lista, chi sta per essere perso, chi è sparito |
@@ -98,7 +98,8 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | brillanza del cielo con Luna | ✅ | `core/visibility/sky.py`: K&S 1991, contributi sommati in flusso, scomposti in uscita |
 | magnitudine limite efficace scomposta | ✅ | `core/visibility/limits.py`: quattro penalità che sommano esatte al totale |
 | ricerca della finestra migliore | ✅ | `core/visibility/windows.py`: geometrica e utile separate, campionamento a 5 min |
-| returning-object radar (stati e transizioni) | ✅ | `core/radar/states.py`: isteresi 0.15 mag e conferma su due giri, 15.000 oggetti × 2 riferimenti in 1 s |
+| finestre in massa (job `windows`) | ✅ | 4.910 oggetti × 3 notti = **14.730 finestre in 5,7 s**: la geometria una volta per sito, i limiti per setup. È lo stesso calcolo della pagina Oggetto, con N ≠ 1 |
+| returning-object radar (stati e transizioni) | ✅ | `core/radar/states.py`: isteresi 0.15 mag e conferma su due giri, 15.000 oggetti × 2 riferimenti in 1 s. Dal 17 ago giudica anche sulla **durata** della finestra, non solo sulla magnitudine |
 | confronto automatico dei siti | ⏳ M1 | `BEST SITE TONIGHT` e `BEST SITE NOW` |
 | ranking a pesi trasparenti | ✅ | `core/ranking/`: dieci feature 0-1 in due gruppi, pesi da `scoring_profile`, `score_json` sempre accanto allo score |
 | dashboard: Tonight / Coming into range / Tj < 3 | ⏳ M1 | NiceGUI, come stock42: nessuna catena di build |
@@ -136,10 +137,10 @@ esiste — e adesso anche **screening** (14.899 oggetti propagati su 24 mesi
 avanti e 15 anni indietro in 18 s), **radar** (stati e transizioni con isteresi)
 e **ranking** (feature 0-1, pesi da `scoring_profile`, scomposizione salvata).
 
-Manca la **dashboard a tre sezioni**, che a questo punto è una query e non un
-calcolo, e il job che scrive `observation_window` in massa: oggi le finestre
-le calcola la pagina Oggetto, un oggetto alla volta, e il calcolo non cambierà —
-cambierà chi lo invoca.
+*Il job delle finestre c'è, dalla sera del 17 agosto 2026:* `observation_window`
+si riempie ogni notte per (target × setup × notte), ed è quello che ha acceso il
+criterio sulla durata nel radar — fino a ieri inerte. Manca la **dashboard a tre
+sezioni**, che a questo punto è una query e non un calcolo.
 
 **M2 — i radar MPC e le comete.** Più la validazione contro Horizons e la
 calibrazione dei limiti, che è ciò che rende affidabile M1.
@@ -244,6 +245,7 @@ pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
 | `backup` | ogni giorno 03:00 UTC | le sei tabelle non rigenerabili |
 | `night_plan` | ogni 6 h | crepuscoli e Luna, due settimane avanti per sito |
 | `screening` | ogni giorno 02:10 UTC | propaga la popolazione monitorata, scrive tracce e `target_stats` |
+| `windows` | ogni giorno 02:20 UTC | finestre e punteggio per (target × setup × notte), tre notti avanti |
 | `radar_states` | ogni giorno 02:40 UTC | stati e transizioni per (target × setup) |
 | `neocp_poll` | ogni 10 min | candidati NEOCP: nuovi, evoluzione, sparizioni |
 | `pccp_poll` | ogni 20 min | candidati cometari PCCP |

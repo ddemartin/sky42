@@ -120,6 +120,9 @@ services/
 ├── radar_service.py    V_ref per setup, stati, transizioni. Nessun calcolo
 │                       di posizioni: se ne compare uno, sta nel posto sbagliato
 ├── ranking_service.py  il profilo attivo dal database e il contesto dell'oggetto
+├── window_service.py   le finestre: un oggetto per la pagina, la popolazione
+│                       monitorata per il job. **Lo stesso calcolo**, e la
+│                       geometria una volta per sito — mai per setup
 ├── maintenance_service.py  pota i registri, riallinea le statistiche
 └── scheduler.py        APScheduler dentro questo processo. Non si avvia se
                         SKY42_TESTING è impostata, o una suite di test
@@ -161,7 +164,7 @@ job, ogni job idempotente e con una riga in `job_run`.
 | `screening` | 02:10 UTC | propagazione 24 mesi avanti + 15 anni indietro, `target_stats` |
 | `radar_states` | 02:40 UTC | stati e transizioni per (target × setup), con isteresi |
 | `night_plan` | ogni 6 h, :50 | crepuscoli e Luna, due settimane avanti per sito |
-| `windows` | ⏳ dopo `night_plan` | finestre e score per (target × setup), in massa |
+| `windows` | 02:20 UTC | finestre e score per (target × setup × notte), tre notti |
 | `horizons_verify` | ⏳ M2 | solo shortlist, con budget |
 
 **Le cadenze a ore fisse si evitano.** Le sorgenti pubblicano a orari che si
@@ -285,7 +288,9 @@ core/visibility/geometry.py ✅ alt/az, airmass, separazioni
 core/visibility/sky.py      ✅ Krisciunas & Schaefer, somma in flusso
 core/visibility/limits.py   ✅ eff_vlim con le quattro penalità che sommano,
                                e reference_limit: V_ref a X=1.5, il metro del radar
-core/visibility/windows.py  ✅ finestra geometrica e finestra utile, separate
+core/visibility/windows.py  ✅ finestra geometrica e finestra utile, separate;
+                               sky_geometry per sito, observation_windows per
+                               setup — un oggetto è il caso N = 1, non un ramo
 core/radar/screening.py     ✅ due griglie (24 mesi avanti, 15 anni indietro),
                                tracce in BLOB float32, distillazione vettoriale
 core/radar/states.py        ✅ sei stati, isteresi 0.15 mag, conferma su due giri
@@ -302,16 +307,17 @@ E la popolazione monitorata non è più cablata: `core/radar/population.py`
 compila regole dichiarative da `setting.screening_selectors`. Tj < 3 è oggi la
 regola principale, non l'unica possibile — e aggiungerne una è una impostazione.
 
+E il job `windows` scrive `observation_window` in massa dalla sera del 17
+agosto: 14.730 finestre in 5,7 s, ed è quello che ha acceso il criterio sulla
+durata nel radar. Da lì in poi lo stato di un oggetto dice «alla portata
+**stanotte, da un sito che ho**», non più solo «abbastanza brillante» — con la
+stagionalità che ne segue (memorandum del 17 agosto sera).
+
 Quel che resta di M1, nell'ordine:
 
-1. **Il job che scrive `observation_window` in massa** per (target × setup).
-   Oggi le finestre le calcola la pagina Oggetto, un oggetto alla volta: il
-   calcolo non cambierà, cambierà chi lo invoca. Finché non c'è, il radar
-   giudica sulla sola magnitudine (`useful_hours=None` significa «non lo so»,
-   e il criterio sulla durata si accende da solo quando la mappa si riempie).
-2. **La dashboard Tonight / Coming into range / Tj < 3**, che a quel punto è
-   una query e non un calcolo.
-3. **`BEST SITE TONIGHT`**, che è la stessa query ordinata per sito — e che
+1. **La dashboard Tonight / Coming into range / Tj < 3**, che adesso è una
+   query su `observation_window` e non un calcolo.
+2. **`BEST SITE TONIGHT`**, che è la stessa query ordinata per sito — e che
    vale quanto valgono i `vlim_ref` dichiarati (domanda aperta 5).
 
 Due cose da tenere d'occhio: `screening_track` ha portato il database da 1,17 a
