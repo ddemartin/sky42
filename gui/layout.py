@@ -15,7 +15,7 @@ FUNCTIONS = [
      "desc": "Stato dei cataloghi orbitali: quanti oggetti, da quando, e la popolazione Tj < 3."},
     {"key": "oggetto", "title": "Oggetto", "icon": "my_location", "route": "/oggetto",
      "desc": "Effemeride di un oggetto del catalogo: posizione, distanza, magnitudine, moto."},
-    {"key": "tonight", "title": "Stanotte", "icon": "nights_stay", "route": None,
+    {"key": "tonight", "title": "Stanotte", "icon": "nights_stay", "route": "/stanotte",
      "desc": "Cosa osservare stanotte, da quale sito e in quale finestra."},
     {"key": "radar", "title": "Returning radar", "icon": "radar", "route": None,
      "desc": "Chi sta rientrando nella portata dei telescopi dopo mesi o anni."},

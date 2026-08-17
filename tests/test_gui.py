@@ -250,6 +250,34 @@ async def test_senza_screening_la_sezione_radar_non_compare(user: User, catalogo
     await user.should_not_see("V adesso")
 
 
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.stanotte")
+async def test_stanotte_si_disegna_con_la_catena_accesa(user: User, sito_e_screening):
+    """La pagina per cui esiste il progetto: tre sezioni, e l'età dei tre job."""
+    from services import night_service, radar_service, window_service
+
+    night_service.plan_nights(2)
+    window_service.run_windows(n_nights=1)
+    radar_service.run_radar()
+
+    await user.open("/stanotte")
+    await user.should_see("Cosa osservare stanotte")
+    await user.should_see("Best site tonight")
+    await user.should_see("Coming into range")
+    await user.should_see("Tj < 3 che tornano")
+    # L'età dei lavori sta in cima: una classifica su finestre di tre giorni fa
+    # è sbagliata in un modo che non si vede guardando le righe.
+    await user.should_see("finestre")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.stanotte")
+async def test_stanotte_regge_il_database_vuoto(user: User, db):
+    """Chi apre la pagina prima che i job abbiano girato deve leggere *perché*
+    è vuota, non trovarsi davanti tre tabelle senza righe."""
+    await user.open("/stanotte")
+    await user.should_see("Cosa osservare stanotte")
+    await user.should_see("Nessuna notte calcolata")
+
+
 @pytest.fixture()
 def candidati(db, tmp_path):
     """Una lista NEOCP già letta, come dopo un giro del watcher."""

@@ -12,30 +12,31 @@ Progetto e ragionamento iniziale: [IDEA.md](IDEA.md). Perché ogni cosa è com'�
 [MEMORANDUM.md](MEMORANDUM.md). Come si lavora: [CLAUDE.md](CLAUDE.md).
 Formule: [docs/modelli.md](docs/modelli.md). Schema: [docs/schema.sql](docs/schema.sql).
 
-> **Stato al 17 agosto 2026: M0 fatto, M1 con la catena di calcolo chiusa.**
-> Dal catalogo alla finestra osservativa il giro è completo — catalogo →
-> Keplero → positioner → sito → notte → cielo → limite → finestra → punteggio —
-> e adesso gira **su tutti gli oggetti insieme**: lo screening propaga la
-> popolazione monitorata 24 mesi avanti e 15 anni indietro in 18 secondi, il
-> radar ne ricava gli stati, il ranking li ordina con pesi che si leggono.
-> Manca la dashboard, che a questo punto è una query.
+> **Stato al 17 agosto 2026 (sera): M0 fatto, M1 chiuso.** Dal catalogo alla
+> riga sullo schermo il giro è completo — catalogo → Keplero → positioner →
+> sito → notte → cielo → limite → finestra → punteggio → dashboard — e gira
+> **su tutti gli oggetti insieme**: lo screening propaga la popolazione
+> monitorata 24 mesi avanti e 15 anni indietro in 18 s, il job delle finestre
+> scrive 14.730 righe in 5,7 s, il radar ne ricava gli stati e `/stanotte` è
+> una query.
 >
 > ```
 > 1.557.419 oggetti     1.556.465 asteroidi + 954 comete
 > 1.556.169 con CEU     lo strato ASTORB agganciato all'MPC
 >    14.899 monitorati  ACO con Tj < 3, comete, watchlist
->       625 a portata   PRIME + OBSERVABLE stanotte, dal setup migliore
+>     4.910 con finestre entro 1,5 mag dal limite del setup migliore
+>       647 utili stanotte  finestra utile non nulla, di cui 10 PRIME e 84 GOOD
 > ```
 >
 > Ciò che sa dire, dal container — ed è la domanda del progetto:
 >
 > ```
-> 2005 VT36 — Tj 2.83, non osservato da 20.8 anni
->   V 19.8 adesso, picco V 19.3; limite di riferimento 21.06  →  PRIME
-> 2004 PB66 — Tj 2.96, non osservato da 21.9 anni
->   V 20.8 adesso, picco V 20.3  →  OBSERVABLE
-> 2001 XP1  — Tj 2.56, non osservato da 14.7 anni
->   V 21.0 adesso, picco V 19.7  →  OBSERVABLE
+> C/2019 E3 (ATLAS)   V 18.3, limite 21.2, margine 2.8 mag
+>   utile 7.6 h dalle 02:28 alle 10:03 UTC · alt 76° · Luna a 122°
+>   468 s × 1 posa · PRIME (0.881) · BEST SITE: cile-rio-hurtado
+>
+> 2020 TY99   Tj 2.94, V 21.1 e in miglioramento
+>   nessuna buona apparizione nei 15 anni guardati  →  OBSERVABLE
 > ```
 
 ---
@@ -100,9 +101,9 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | ricerca della finestra migliore | ✅ | `core/visibility/windows.py`: geometrica e utile separate, campionamento a 5 min |
 | finestre in massa (job `windows`) | ✅ | 4.910 oggetti × 3 notti = **14.730 finestre in 5,7 s**: la geometria una volta per sito, i limiti per setup. È lo stesso calcolo della pagina Oggetto, con N ≠ 1 |
 | returning-object radar (stati e transizioni) | ✅ | `core/radar/states.py`: isteresi 0.15 mag e conferma su due giri, 15.000 oggetti × 2 riferimenti in 1 s. Dal 17 ago giudica anche sulla **durata** della finestra, non solo sulla magnitudine |
-| confronto automatico dei siti | ⏳ M1 | `BEST SITE TONIGHT` e `BEST SITE NOW` |
+| confronto automatico dei siti | ✅ | `BEST SITE TONIGHT` in `/stanotte`, e il confronto per oggetto dentro la riga — compresi i setup da cui **non** si vede. `BEST SITE NOW` resta di M2 |
 | ranking a pesi trasparenti | ✅ | `core/ranking/`: dieci feature 0-1 in due gruppi, pesi da `scoring_profile`, `score_json` sempre accanto allo score |
-| dashboard: Tonight / Coming into range / Tj < 3 | ⏳ M1 | NiceGUI, come stock42: nessuna catena di build |
+| dashboard: Tonight / Coming into range / Tj < 3 | ✅ | `/stanotte`: tre sezioni per tre orizzonti (stanotte, le settimane, gli anni). È una query, non un calcolo, e ha il suo gemello JSON in `/api/stanotte` |
 | trailing ed esposizione consigliata | ✅ | `n × t`, con la posa massima dettata da traccia e pixel |
 | incertezza posizionale vs campo, mosaico | ✅ | 3σ di CEU contro il lato corto del campo; CEU propagata a oggi in `target_stats.ceu_now_arcsec` |
 | watcher NEOCP | ✅ | `neocp_poll` ogni 10 min: candidati, evoluzione, sparizioni. La storia che l'MPC non conserva |
@@ -141,6 +142,11 @@ e **ranking** (feature 0-1, pesi da `scoring_profile`, scomposizione salvata).
 si riempie ogni notte per (target × setup × notte), ed è quello che ha acceso il
 criterio sulla durata nel radar — fino a ieri inerte. Manca la **dashboard a tre
 sezioni**, che a questo punto è una query e non un calcolo.
+
+*E la dashboard c'è, dalla sera del 17 agosto 2026:* `/stanotte` con le tre
+sezioni e `BEST SITE TONIGHT`. **M1 è chiuso**: la domanda «cosa entra sotto
+V 21, e da dove si vede meglio» ha una risposta sullo schermo senza aver
+chiamato JPL nemmeno una volta.
 
 **M2 — i radar MPC e le comete.** Più la validazione contro Horizons e la
 calibrazione dei limiti, che è ciò che rende affidabile M1.

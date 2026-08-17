@@ -2193,6 +2193,62 @@ sceglie il suo `V_ref`.
 
 ---
 
+## 2026-08-17 (sera) — la dashboard: tre sezioni e non una classifica
+
+`/stanotte` c'è, e con lei M1 è chiuso. Non calcola niente: legge quello che i
+tre job della notte hanno scritto. Se lì dentro comparisse una propagazione,
+vorrebbe dire che screening, finestre o radar non hanno distillato abbastanza.
+
+**Tre sezioni e non una classifica sola**, che è l'unica decisione di sostanza.
+Rispondono a tre orizzonti diversi: `tonight` (stanotte, ordinata per
+punteggio), `coming_into_range` (le prossime settimane, ordinata per **quando**
+— `next_v21_jd` dallo screening, non `v_now`), `returns` (gli anni, ordinata
+per da quanto manca una buona apparizione). Fonderle in un ranking unico
+sembrerebbe più elegante e sarebbe sbagliato: su una scala sola un oggetto
+comodo e brillante di stasera batte sempre uno che manca da vent'anni, e la
+seconda riga non comparirebbe mai. Sono tre domande, e chi guarda ne ha in
+mente una alla volta.
+
+Il confronto fra siti sta **dentro la riga** dell'oggetto e non in una pagina a
+parte, perché «da dove lo prendo» non è una domanda successiva a «cosa osservo»:
+è la stessa domanda (IDEA.md). Ci restano dentro anche i setup da cui *non* si
+vede, con il loro `NOT_USEFUL`. `BEST SITE TONIGHT` è la stessa query aggregata
+per setup — e la pagina scrive, accanto, che vale quanto valgono i `vlim_ref`
+dichiarati (domanda aperta 5). Un confronto fra siti che non dichiara di essere
+un'opinione è un confronto che verrà creduto.
+
+Due query e non una per la sezione `tonight`: prima *quali* oggetti, ordinati
+per punteggio, poi tutte le finestre di quei soli oggetti. Una query sola
+ordinata per punteggio taglierebbe le alternative degli ultimi in classifica
+proprio mentre le si vuole mostrare. E `score_json` non entra nelle liste: è la
+scomposizione, si guarda su un oggetto alla volta, e moltiplicata per cinquemila
+righe sarebbe qualche megabyte per disegnarne venti.
+
+La pagina ha il suo **gemello JSON** (`GET /api/stanotte`) che chiama la stessa
+funzione, non una seconda query: il giorno delle curve di visibilità la sorgente
+dati deve già esserci (CLAUDE.md).
+
+### Il NULL che era un dato, non un buco
+
+`years_since_good_apparition` a NULL non significa «non lo so»: significa che in
+tutti e quindici gli anni di back-propagation quell'oggetto non è **mai** stato
+sotto il limite. È l'assenza più lunga di tutte — il rientro più interessante
+che esista — e la prima versione della query lo ordinava per ultimo, con
+`DESC NULLS LAST`, che è il default che viene alle dita.
+
+Si è visto alla prima lettura sul catalogo vero: in cima `(104898) 2000 JX5`,
+tornato dopo 14,9 anni, e in fondo `2020 TY99` — Tj 2,94, V 21,1 e in
+miglioramento — che non si vedeva da **più** di quindici. Adesso i censurati
+vanno in cima (`COALESCE(..., 9999)`) e viaggiano con `apparition_censored`, che
+la pagina scrive «≥ 15 anni» e non «15»: mettere il numero tondo sarebbe
+inventare una misura là dove si sa solo un estremo inferiore.
+
+Vale la pena tenerlo a mente ovunque: in questo progetto un NULL è quasi sempre
+o «non calcolabile» o «oltre la finestra», e le due cose si ordinano in
+direzioni opposte.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

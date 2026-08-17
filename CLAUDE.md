@@ -120,6 +120,9 @@ services/
 ├── radar_service.py    V_ref per setup, stati, transizioni. Nessun calcolo
 │                       di posizioni: se ne compare uno, sta nel posto sbagliato
 ├── ranking_service.py  il profilo attivo dal database e il contesto dell'oggetto
+├── dashboard_service.py le tre sezioni di /stanotte. **Nessun calcolo**: se qui
+│                       comparisse una propagazione, vorrebbe dire che uno dei
+│                       tre job della notte non ha distillato abbastanza
 ├── window_service.py   le finestre: un oggetto per la pagina, la popolazione
 │                       monitorata per il job. **Lo stesso calcolo**, e la
 │                       geometria una volta per sito — mai per setup
@@ -273,9 +276,9 @@ gira all'avvio e deve essere idempotente.
 
 ## Da dove si riparte
 
-M0 è chiuso. Di **M1** è fatta tutta la catena di calcolo, dal catalogo al
-punteggio, ognuno dei pezzi con il suo test di verità contro Horizons dove una
-verità esiste:
+M0 e **M1** sono chiusi (17 agosto 2026, sera). La catena va dal catalogo alla
+riga sullo schermo, ogni pezzo con il suo test di verità contro Horizons dove
+una verità esiste:
 
 ```
 core/orbits/kepler.py       ✅ due rami (Newton su E, variabili universali)
@@ -313,12 +316,16 @@ durata nel radar. Da lì in poi lo stato di un oggetto dice «alla portata
 **stanotte, da un sito che ho**», non più solo «abbastanza brillante» — con la
 stagionalità che ne segue (memorandum del 17 agosto sera).
 
-Quel che resta di M1, nell'ordine:
+E `/stanotte` chiude M1 la sera dello stesso giorno: tre sezioni per tre
+orizzonti — stanotte, le prossime settimane, gli anni — che **non si fondono in
+una classifica sola**, o l'oggetto che manca da vent'anni non comparirebbe mai
+sopra quello comodo di stasera. Dentro c'è `BEST SITE TONIGHT`, e il confronto
+fra siti sta dentro la riga dell'oggetto, con i setup da cui non si vede ancora
+in elenco. La pagina ha il suo gemello JSON (`/api/stanotte`), che chiama la
+stessa funzione e non una seconda query.
 
-1. **La dashboard Tonight / Coming into range / Tj < 3**, che adesso è una
-   query su `observation_window` e non un calcolo.
-2. **`BEST SITE TONIGHT`**, che è la stessa query ordinata per sito — e che
-   vale quanto valgono i `vlim_ref` dichiarati (domanda aperta 5).
+Il prossimo lavoro è **M2**: il watcher MPEC, cioè il destino dei candidati
+NEOCP, e poi il confine verso JPL con budget e cache.
 
 Due cose da tenere d'occhio: `screening_track` ha portato il database da 1,17 a
 1,43 GB e cresce linearmente con la popolazione monitorata (voce nel
