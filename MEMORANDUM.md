@@ -2426,6 +2426,49 @@ deciso di fare.
 
 ---
 
+## 2026-08-17 (fine giornata) — dove siamo, e il filo che lega gli errori di oggi
+
+Cinque lavori in una sera: finestre in massa, dashboard, destino dei candidati,
+propositi osservativi, più due bug di interfaccia. M0 e M1 chiusi, di M2 fatta
+la parte MPC. Sul catalogo vero i quattro lavori pesanti della notte stanno
+insieme in **mezzo minuto** — screening 13 s, finestre 12 s, radar 2 s,
+propositi meno di uno — su 14.900 oggetti monitorati e un database di 1,47 GB.
+
+Vale la pena notare che **tutti e quattro gli errori di oggi sono stati trovati
+dai dati veri, non dai test**, e che tre su quattro erano lo stesso errore:
+
+* le finestre in massa hanno mostrato che il radar leggeva **la notte
+  sbagliata** (`max(night_date) <= date('now')` invece della notte del sito) e
+  che il rollup cercava una chiave che per costruzione non esiste. Con la
+  tabella vuota nessuno dei due si vedeva;
+* la dashboard ordinava per ultimi i rientri **più** rari, perché
+  `years_since_good_apparition` a NULL è un valore *censurato* e non mancante;
+* il destino dei candidati ha scritto «non esiste» su `A11FAuF`, che era in
+  lista con score 100: quella decisione dell'MPC riguardava un passaggio
+  precedente dello stesso trksub;
+* i propositi hanno chiuso C/2019 E3, primo della classifica, perché `FADING`
+  non è in `IN_RANGE` — ma `FADING` vuol dire «ultima occasione».
+
+Il filo: ogni volta si era preso un **insieme comodo** — «non IN_RANGE», «NULL»,
+«l'ultima notte», «lo stesso trksub» — e lo si era usato come se fosse un
+predicato con un significato solo. Nei quattro casi il significato era almeno
+due, e i test non potevano accorgersene perché li avevo scritti con la stessa
+idea sbagliata in testa. È l'argomento più forte a favore di far girare ogni
+cosa nuova sul servizio vero **lo stesso giorno**, e di guardare le prime venti
+righe che produce invece di fidarsi del verde della suite.
+
+Un'osservazione sui dati finti dei test, già in CLAUDE.md e riconfermata: la
+prima versione del test sul destino falliva perché le mie righe dicevano che
+l'MPC aveva deciso *prima* che noi vedessimo il candidato. Non era il codice a
+sbagliare, era il campione a descrivere un mondo che non esiste — e la regola
+vale anche per la **cronologia**, non solo per il formato.
+
+Stato dei numeri, per il prossimo giro: 1.558.058 oggetti, 14.900 monitorati,
+14.730 finestre su tre notti, 104 candidati NEOCP/PCCP con 351 istantanee e 4
+destini scritti, 2 propositi aperti. 367 test.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

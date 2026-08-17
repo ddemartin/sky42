@@ -12,20 +12,19 @@ Progetto e ragionamento iniziale: [IDEA.md](IDEA.md). Perché ogni cosa è com'�
 [MEMORANDUM.md](MEMORANDUM.md). Come si lavora: [CLAUDE.md](CLAUDE.md).
 Formule: [docs/modelli.md](docs/modelli.md). Schema: [docs/schema.sql](docs/schema.sql).
 
-> **Stato al 17 agosto 2026 (sera): M0 fatto, M1 chiuso.** Dal catalogo alla
-> riga sullo schermo il giro è completo — catalogo → Keplero → positioner →
-> sito → notte → cielo → limite → finestra → punteggio → dashboard — e gira
-> **su tutti gli oggetti insieme**: lo screening propaga la popolazione
-> monitorata 24 mesi avanti e 15 anni indietro in 18 s, il job delle finestre
-> scrive 14.730 righe in 5,7 s, il radar ne ricava gli stati e `/stanotte` è
-> una query.
+> **Stato al 17 agosto 2026 (sera): M0 e M1 chiusi, M2 cominciato.** Dal
+> catalogo alla riga sullo schermo il giro è completo — catalogo → Keplero →
+> positioner → sito → notte → cielo → limite → finestra → punteggio →
+> dashboard → **proposito osservativo** — e gira su tutti gli oggetti insieme.
+> I quattro lavori pesanti della notte stanno insieme in mezzo minuto:
+> screening 13 s, finestre 12 s, radar 2 s, propositi < 1 s.
 >
 > ```
-> 1.557.419 oggetti     1.556.465 asteroidi + 954 comete
-> 1.556.169 con CEU     lo strato ASTORB agganciato all'MPC
->    14.899 monitorati  ACO con Tj < 3, comete, watchlist
->     4.910 con finestre entro 1,5 mag dal limite del setup migliore
->       647 utili stanotte  finestra utile non nulla, di cui 10 PRIME e 84 GOOD
+> 1.558.058 oggetti     1.557.104 asteroidi + 954 comete
+> 1.557.088 con CEU     lo strato ASTORB agganciato all'MPC
+>    14.900 monitorati  ACO con Tj < 3, comete, watchlist
+>    14.730 finestre    (target × setup × notte) per i 4.910 entro portata
+>       104 candidati   NEOCP/PCCP, 351 istantanee, e il destino di chi è uscito
 > ```
 >
 > Ciò che sa dire, dal container — ed è la domanda del progetto:
@@ -34,9 +33,13 @@ Formule: [docs/modelli.md](docs/modelli.md). Schema: [docs/schema.sql](docs/sche
 > C/2019 E3 (ATLAS)   V 18.3, limite 21.2, margine 2.8 mag
 >   utile 7.6 h dalle 02:28 alle 10:03 UTC · alt 76° · Luna a 122°
 >   468 s × 1 posa · PRIME (0.881) · BEST SITE: cile-rio-hurtado
+>   → in programma, e FADING: ultima occasione
 >
 > 2020 TY99   Tj 2.94, V 21.1 e in miglioramento
 >   nessuna buona apparizione nei 15 anni guardati  →  OBSERVABLE
+>
+> P22pq2q → 2026 PN9   candidato NEOCP visto alle 07:50, designato alle 11:52
+>   con la circolare MPEC 2026-Q11
 > ```
 
 ---
@@ -113,7 +116,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | comete: elementi MPC e radar dedicato | ⏳ M2 | ordinate per geometria, non per magnitudine |
 | verifica con Horizons sulla shortlist | ⏳ M2 | con budget giornaliero e cache; ogni chiamata a log |
 | validazione due corpi contro Horizons | ⏳ M2 | 50 oggetti/mese a 1, 6, 12, 24 mesi (domanda aperta 2) |
-| calibrazione di `vlim_ref` dalle misure | ⏳ M2 | i fatti battono il file di configurazione |
+| calibrazione di `vlim_ref` dalle misure | ⏳ M2 | i fatti battono il file di configurazione. **Da stasera la fonte di dati c'è**: `observation_log.limiting_mag` registra la magnitudine limite raggiunta in ogni sessione |
 | notifiche | ⏳ M3 | prima serve sapere quante transizioni al giorno genera il radar |
 | oggetti deep sky | — un domani | lo schema e il positioner sono già pronti a riceverli |
 | pipeline di immagini (PSF, ricerca di coma) | — fuori | progetto separato: da sky42 riceverebbe solo la lista di target |
@@ -126,31 +129,33 @@ Catalogo mostra quanti e da quando. `SELECT count(*) FROM orbit WHERE
 tisserand_j < 3` risponde: 34.048, che diventano 14.685 togliendo comete e
 famiglie risonanti.
 
-**M1 — l'MVP di IDEA.md.** Screening, notte, Luna, finestre, radar, ranking,
-dashboard a tre sezioni. Criterio di uscita: la domanda «cosa entra sotto V 21
-nei prossimi dodici mesi, e da dove si vede meglio» ha una risposta sullo
-schermo senza aver chiamato JPL nemmeno una volta.
+**M1 — l'MVP di IDEA.md.** ✅ *chiuso il 17 agosto 2026.* La domanda «cosa
+entra sotto V 21 nei prossimi dodici mesi, e da dove si vede meglio» ha una
+risposta sullo schermo senza aver chiamato JPL nemmeno una volta.
 
-*La catena di calcolo è chiusa, il 17 agosto 2026.* Solutore di Keplero,
-reconcile dei siti, positioner con fotometria, notte e Luna per sito, geometria
-e airmass, brillanza del cielo, magnitudine limite scomposta, finestre
-osservative — ognuno con il suo test di verità contro Horizons dove una verità
-esiste — e adesso anche **screening** (14.899 oggetti propagati su 24 mesi
-avanti e 15 anni indietro in 18 s), **radar** (stati e transizioni con isteresi)
-e **ranking** (feature 0-1, pesi da `scoring_profile`, scomposizione salvata).
-
-*Il job delle finestre c'è, dalla sera del 17 agosto 2026:* `observation_window`
-si riempie ogni notte per (target × setup × notte), ed è quello che ha acceso il
-criterio sulla durata nel radar — fino a ieri inerte. Manca la **dashboard a tre
-sezioni**, che a questo punto è una query e non un calcolo.
-
-*E la dashboard c'è, dalla sera del 17 agosto 2026:* `/stanotte` con le tre
-sezioni e `BEST SITE TONIGHT`. **M1 è chiuso**: la domanda «cosa entra sotto
-V 21, e da dove si vede meglio» ha una risposta sullo schermo senza aver
-chiamato JPL nemmeno una volta.
+In ordine, tutto con il suo test di verità contro Horizons dove una verità
+esiste: solutore di Keplero, reconcile dei siti, positioner con fotometria,
+notte e Luna per sito, geometria e airmass, brillanza del cielo, magnitudine
+limite scomposta, finestre osservative; poi **screening** (14.900 oggetti
+propagati 24 mesi avanti e 15 anni indietro in 13 s), **finestre in massa**
+(14.730 righe in 12 s, che hanno acceso il criterio sulla durata nel radar),
+**radar** (stati e transizioni con isteresi), **ranking** (feature 0-1, pesi da
+`scoring_profile`) e la **dashboard** `/stanotte` con `BEST SITE TONIGHT`.
 
 **M2 — i radar MPC e le comete.** Più la validazione contro Horizons e la
 calibrazione dei limiti, che è ciò che rende affidabile M1.
+
+*Fatto:* il **watcher NEOCP/PCCP** (anticipato a M1, perché quella storia non si
+recupera a posteriori) e il **destino dei candidati** — da candidato a NEO
+confermato con la sua circolare, pianetino designato, perso o inesistente.
+
+*Fuori programma ma indispensabile, dalla sera del 17 agosto:* i **propositi
+osservativi** e il registro delle **sessioni**. Le altre pagine suggeriscono,
+`/programma` registra le decisioni — e dice quando un'occasione è passata, con
+il motivo: sceso sotto il limite, o niente finestra da quel sito.
+
+*Resta:* il confine verso JPL con budget e cache, il radar dedicato alle comete,
+le misure astrometriche (ADES) e la calibrazione di `vlim_ref` dalle sessioni.
 
 **M3 — le notifiche**, quando si saprà quanto rumore fa il radar.
 

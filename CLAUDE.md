@@ -117,6 +117,9 @@ services/
 ├── jobs.py             registro dei job, blocchi, cortesia verso la macchina
 ├── ingest_service.py   scarica → analizza → scrive. Le uniche INSERT dei cataloghi
 ├── catalog_service.py  letture per l'interfaccia. Nessuna scrittura
+├── sites_service.py    il reconcile dagli YAML e l'hardware annidato per le pagine
+├── ephemeris_service.py    un oggetto e la sua effemeride, per la pagina Oggetto
+├── night_service.py    crepuscoli e Luna per sito, due settimane avanti
 ├── backup_service.py   copia le sole tabelle non rigenerabili. Il catalogo no:
 │                       quello si riscarica in 100 secondi
 ├── screening_service.py    la popolazione monitorata, i blocchi, le INSERT
@@ -286,9 +289,10 @@ gira all'avvio e deve essere idempotente.
 
 ## Da dove si riparte
 
-M0 e **M1** sono chiusi (17 agosto 2026, sera). La catena va dal catalogo alla
-riga sullo schermo, ogni pezzo con il suo test di verità contro Horizons dove
-una verità esiste:
+**M0 e M1 sono chiusi** (17 agosto 2026, sera), e di **M2** è fatto il pezzo
+sui candidati MPC. La catena va dal catalogo alla riga sullo schermo fino alla
+decisione dell'osservatore, ogni pezzo di calcolo con il suo test di verità
+contro Horizons dove una verità esiste:
 
 ```
 core/orbits/kepler.py       ✅ due rami (Newton su E, variabili universali)
@@ -307,38 +311,48 @@ core/visibility/windows.py  ✅ finestra geometrica e finestra utile, separate;
 core/radar/screening.py     ✅ due griglie (24 mesi avanti, 15 anni indietro),
                                tracce in BLOB float32, distillazione vettoriale
 core/radar/states.py        ✅ sei stati, isteresi 0.15 mag, conferma su due giri
+core/radar/population.py    ✅ chi si monitora da regole dichiarative in `setting`
 core/ranking/               ✅ dieci feature 0-1 in due gruppi, pesi dal profilo
+core/ingest/neocp.py        ✅ le liste NEOCP e PCCP, dal testo
+core/ingest/neocp_prev.py   ✅ il destino dei candidati usciti di lista
 ```
 
-Sul catalogo vero: **14.899 oggetti monitorati, screening in 18 s, radar in 1 s**.
+Sul catalogo vero, i quattro lavori pesanti della notte in mezzo minuto:
+**screening 13 s** (14.900 monitorati), **finestre 12 s** (14.730 righe),
+**radar 2 s**, **propositi < 1 s**. Database 1,47 GB.
 
-Di **M2** è stato anticipato il pezzo che non si recupera a posteriori: il
-polling **NEOCP e PCCP** (`core/ingest/neocp.py`, `services/candidate_service.py`,
-pagina `/candidati`). Manca il watcher MPEC, cioè il *destino* dei candidati.
+Le pagine: `/stanotte` (tre sezioni per tre orizzonti, con `BEST SITE
+TONIGHT`), `/programma` (propositi e sessioni), `/oggetto`, `/candidati`,
+`/catalogo`, `/osservatori`, `/pianificatore`. Le prime due hanno il gemello
+JSON, che chiama **la stessa funzione** e non una seconda query.
 
-E la popolazione monitorata non è più cablata: `core/radar/population.py`
-compila regole dichiarative da `setting.screening_selectors`. Tj < 3 è oggi la
-regola principale, non l'unica possibile — e aggiungerne una è una impostazione.
+### Cosa resta, nell'ordine
 
-E il job `windows` scrive `observation_window` in massa dalla sera del 17
-agosto: 14.730 finestre in 5,7 s, ed è quello che ha acceso il criterio sulla
-durata nel radar. Da lì in poi lo stato di un oggetto dice «alla portata
-**stanotte, da un sito che ho**», non più solo «abbastanza brillante» — con la
-stagionalità che ne segue (memorandum del 17 agosto sera).
+1. **Il confine verso JPL** (`core/external/`): Horizons e SBDB solo sulla
+   shortlist, con budget giornaliero, cache su disco e una riga in
+   `external_call` per ogni chiamata (regola 2). È il pezzo che manca a M2 e
+   quello che rende verificabile tutto il resto.
+2. **La validazione contro Horizons** su un campione stratificato: 50 oggetti a
+   1, 6, 12, 24 mesi (domanda aperta 2). Un punto solo esiste già — Faetonte,
+   0.30″ e 0.000 mag a due mesi — e non è una risposta.
+3. **La calibrazione di `vlim_ref`** dalle sessioni vere: da stasera
+   `observation_log.limiting_mag` raccoglie la magnitudine limite *raggiunta*,
+   che è l'unica strada per chiudere la domanda aperta 5. Serve solo osservare.
+4. **Le misure ADES** e il radar dedicato alle comete.
+5. **Le notifiche** (M3), quando si saprà quanto rumore fa il radar — cioè
+   quando la domanda aperta 7 avrà un numero.
 
-E `/stanotte` chiude M1 la sera dello stesso giorno: tre sezioni per tre
-orizzonti — stanotte, le prossime settimane, gli anni — che **non si fondono in
-una classifica sola**, o l'oggetto che manca da vent'anni non comparirebbe mai
-sopra quello comodo di stasera. Dentro c'è `BEST SITE TONIGHT`, e il confronto
-fra siti sta dentro la riga dell'oggetto, con i setup da cui non si vede ancora
-in elenco. La pagina ha il suo gemello JSON (`/api/stanotte`), che chiama la
-stessa funzione e non una seconda query.
+### Tre cose da sapere prima di toccare qualcosa
 
-Di **M2** è fatto il destino dei candidati (`destiny_poll`, 17 agosto sera): la
-NEOCP è un cerchio chiuso — chi entra, come cambia, e come è finita. Restano il
-confine verso JPL con budget e cache, e il radar dedicato alle comete.
-
-Due cose da tenere d'occhio: `screening_track` ha portato il database da 1,17 a
-1,43 GB e cresce linearmente con la popolazione monitorata (voce nel
-memorandum); e il polling NEOCP di M2 **conviene anticiparlo** — quella storia
-non si recupera a posteriori.
+* Lo stato del radar dice «alla portata **stanotte, da un sito che ho**», non
+  più «abbastanza brillante»: da quando le finestre esistono, il criterio sulla
+  durata è acceso e porta con sé una stagionalità che l'isteresi sulla
+  magnitudine non copre (memorandum del 17 agosto sera).
+* `IN_RANGE` è un insieme comodo per **contare**, non un predicato su cui
+  decidere: il suo complemento non è «fuori portata», sono tre cose diverse —
+  `APPROACHING` è «sta arrivando», `FADING` è «ultima occasione», solo
+  `OUT_OF_RANGE` è «è andata». Costato un proposito chiuso per sbaglio sul
+  servizio vero.
+* `screening_track` ha portato il database da 1,17 a 1,47 GB e cresce
+  linearmente con la popolazione monitorata: allargare le regole di
+  `setting.screening_selectors` costa disco, e va misurato prima.
