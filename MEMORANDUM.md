@@ -1922,6 +1922,17 @@ Da correggere è servito guardare il database dopo venti minuti di esercizio, no
 rileggere il codice: la prima versione era ragionevole e sbagliata, e nessun
 test l'avrebbe presa senza sapere *quali* campi si muovono da soli.
 
+**Misura, a correzione fatta**, sugli stessi ~100 candidati:
+
+```
+prima:  97, 103, 104 istantanee per giro    una per candidato, ogni volta
+dopo:    0,   3     istantanee per giro     solo chi ha davvero una novità
+```
+
+Tre su cento, cioè i candidati che in quei dieci minuti hanno ricevuto
+osservazioni nuove. Da 15.000 righe al giorno a qualche centinaio, e ognuna
+dice qualcosa.
+
 **Una lista vuota non chiude niente.** Un 200 con zero righe è un guasto della
 sorgente molto più spesso di un cielo tranquillo, e chiudere novanta candidati
 insieme è irreversibile. Sotto la soglia si annota e non si tocca nulla.
