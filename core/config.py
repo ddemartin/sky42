@@ -19,7 +19,18 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Radice dei dati: unico bind mount del container.
 DATA_DIR = Path(os.environ.get("SKY42_DATA_DIR", ROOT / "data")).resolve()
-DB_PATH = DATA_DIR / "sky42.db"
+
+# **Il database ha un percorso suo, separato da DATA_DIR.** In container sta in
+# un volume Docker (ext4 dentro la VM) e non sul bind mount di macOS: la WAL di
+# SQLite non regge virtiofs, e il COMMIT di un import muore con `locking
+# protocol` o direttamente di SIGBUS (MEMORANDUM 2026-08-17). Non è una
+# rinuncia: il database *è* un indice rigenerabile (regola 1), mentre ciò che
+# va guardato dal Finder e copiato altrove — cataloghi scaricati, backup delle
+# tabelle non rigenerabili, log — resta su `data/`.
+#
+# Il default lascia il database in DATA_DIR, che è quel che serve al venv di
+# sviluppo e ai test.
+DB_PATH = Path(os.environ.get("SKY42_DB_PATH", DATA_DIR / "sky42.db")).resolve()
 CATALOG_DIR = DATA_DIR / "catalogs"   # i file scaricati, con il loro hash
 # DE440s e simili. Ha una variabile sua perché è l'unico dato scaricato che i
 # test possono **riusare**: 32 MB immutabili, uguali per tutti, che non ha senso
@@ -95,5 +106,8 @@ ACO_EXCLUDED_CLASSES = ("Jupiter Trojan", "Hilda", "Distant Object")
 
 def ensure_dirs() -> None:
     """Crea le cartelle dati. Idempotente, si chiama a ogni avvio."""
-    for d in (DATA_DIR, CATALOG_DIR, EPHEM_DIR, CACHE_DIR, LOG_DIR):
+    # `DB_PATH.parent` e non `DATA_DIR`: da quando il database vive in un volume
+    # a parte, la sua cartella può non essere sotto DATA_DIR — e al primo avvio
+    # su un volume vuoto non esiste ancora.
+    for d in (DATA_DIR, DB_PATH.parent, CATALOG_DIR, EPHEM_DIR, CACHE_DIR, LOG_DIR):
         d.mkdir(parents=True, exist_ok=True)

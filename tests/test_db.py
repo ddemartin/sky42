@@ -121,3 +121,38 @@ def test_un_profilo_modificato_a_mano_non_viene_riscritto(db):
     finally:
         conn.close()
     assert pesi == {"depth": 99.0}, "la taratura è dell'utente, non del codice"
+
+
+def test_il_database_puo_stare_fuori_da_data_dir(tmp_path, monkeypatch):
+    """In container il database vive in un volume Docker e **non** sul bind
+    mount: la WAL di SQLite non regge virtiofs (memorandum 17 agosto). Il
+    percorso è quindi indipendente da `DATA_DIR`, e `ensure_dirs` deve creare
+    la sua cartella — al primo avvio su un volume vuoto non esiste ancora.
+    """
+    import importlib
+
+    altrove = tmp_path / "volume" / "sky42.db"
+    monkeypatch.setenv("SKY42_DATA_DIR", str(tmp_path / "dati"))
+    monkeypatch.setenv("SKY42_DB_PATH", str(altrove))
+
+    from core import config as config_modulo
+
+    config = importlib.reload(config_modulo)
+    try:
+        assert config.DB_PATH == altrove.resolve()
+        assert config.CATALOG_DIR.parent == config.DATA_DIR, "i download restano lì"
+        assert not altrove.parent.exists()
+        config.ensure_dirs()
+        assert altrove.parent.is_dir(), "la cartella del database va creata"
+    finally:
+        # Il modulo è globale: lasciarlo puntato alla cartella di prova
+        # farebbe fallire i test successivi in un modo difficile da capire.
+        monkeypatch.undo()
+        importlib.reload(config_modulo)
+
+
+def test_senza_variabile_il_database_resta_in_data_dir():
+    """Il default è quello che serve al venv di sviluppo e ai test."""
+    from core import config
+
+    assert config.DB_PATH == (config.DATA_DIR / "sky42.db").resolve()

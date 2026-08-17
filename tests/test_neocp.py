@@ -178,20 +178,25 @@ def test_uno_snapshot_quando_qualcosa_si_muove(db, tmp_path):
     assert corrente["n_obs"] == 4 and corrente["v_mag"] == 19.6
 
 
-def test_l_orologio_non_e_una_notizia(db, tmp_path):
-    """`not_seen_days` cresce da solo a ogni giro: se contasse come cambiamento
-    si scriverebbe un'istantanea per ogni candidato ogni dieci minuti, cioè
-    cinque milioni di righe l'anno. Misurato sul serio il 2026-08-17."""
+def test_quello_che_cambia_da_solo_non_e_una_notizia(db, tmp_path):
+    """L'orologio e l'effemeride cambiano a ogni lettura: se contassero come
+    cambiamento si scriverebbe un'istantanea per ogni candidato ogni dieci
+    minuti, cinque milioni di righe l'anno. Misurato il 2026-08-17 sul serio,
+    ed è il motivo per cui questo test esiste."""
     _poll(NEOCP_TXT, tmp_path)
-    solo_orologio = NEOCP_TXT.replace(" 0.032", " 0.036").replace(" 0.817", " 0.821")
-    esito = _poll(solo_orologio, tmp_path)
+    # Passa il tempo (not_seen) e l'oggetto si sposta di qualche arcosecondo.
+    solo_rumore = (NEOCP_TXT
+                   .replace(" 0.032", " 0.036").replace(" 0.817", " 0.821")
+                   .replace("+12.7517", "+12.7519").replace("22.6102", "22.6104"))
+    esito = _poll(solo_rumore, tmp_path)
 
     assert esito["snapshot"] == 0
     assert len(_righe("SELECT * FROM mpc_candidate_snapshot")) == 7
-    # Il valore corrente si aggiorna lo stesso: è la riga del candidato a dire
-    # da quanto non lo riprende nessuno, ed è quella che si guarda.
+    # I valori correnti si aggiornano lo stesso: la posizione per puntare e il
+    # «non ripreso da» si leggono dalla riga del candidato, non dalla storia.
     corrente = _righe("SELECT * FROM mpc_candidate WHERE temp_desig='ST26H52'")[0]
     assert corrente["not_seen_days"] == 0.036
+    assert corrente["dec_deg"] == pytest.approx(12.7519)
 
 
 def test_una_osservazione_nuova_invece_e_una_notizia(db, tmp_path):

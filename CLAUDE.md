@@ -237,13 +237,13 @@ insieme sullo stesso SQLite attraverso il bind mount è il modo documentato di
 corromperlo — in WAL il coordinamento fra scrittori passa da un file di memoria
 condivisa che non attraversa il confine della VM.
 
-**Con una sola eccezione, e va saputa: gli import dei cataloghi.** Il loro
-COMMIT muore sul bind mount — `locking protocol` a servizio acceso, **SIGBUS**
-a servizio fermo, sempre su `core/db.py:79` — perché la WAL di SQLite non regge
-virtiofs (memorandum 17 agosto). Finché il database non sarà in un volume
-Docker si fa `docker compose stop`, `.venv/bin/python cli.py ingest ...`
-dall'host, `docker compose up -d`. Screening, radar e watcher dei candidati
-girano bene dentro il container.
+**E dal 17 agosto è anche l'unica cosa possibile: il database del servizio sta
+in un volume Docker** (`SKY42_DB_PATH=/var/lib/sky42/sky42.db`), non su `data/`.
+Il bind mount di macOS passa da virtiofs e la WAL di SQLite non ci regge — il
+COMMIT di un import moriva con `locking protocol` a servizio acceso e con
+**SIGBUS** a servizio fermo, sempre su `core/db.py:79`. Su `data/` restano i
+cataloghi scaricati, le effemeridi, i log e i backup: l'unico ponte fra il
+volume e il mondo, e per questo il backup notturno conta più di prima.
 
 Due cose che il `restart: unless-stopped` **non** copre, e vanno sapute:
 `docker compose kill` e `docker compose stop` contano come arresto voluto e non

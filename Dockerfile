@@ -36,12 +36,17 @@ COPY docs/schema.sql ./docs/schema.sql
 # container che al prossimo build tornerebbe indietro.
 COPY config/ ./config/
 
+# `/var/lib/sky42` è il punto di innesto del volume del database. Va creato
+# **nell'immagine e con il proprietario giusto**: Docker copia proprietario e
+# permessi della directory dell'immagine dentro il volume vuoto la prima volta
+# che lo monta. Senza, il volume nasce di root e il processo non scrive.
 RUN useradd --create-home --uid 1000 sky42 \
- && mkdir -p /app/data \
- && chown -R sky42:sky42 /app
+ && mkdir -p /app/data /var/lib/sky42 \
+ && chown -R sky42:sky42 /app /var/lib/sky42
 USER sky42
 
 ENV SKY42_DATA_DIR=/app/data \
+    SKY42_DB_PATH=/var/lib/sky42/sky42.db \
     SKY42_HOST=0.0.0.0 \
     SKY42_PORT=8000
 

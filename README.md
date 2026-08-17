@@ -81,7 +81,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | popolazione monitorata configurabile | ✅ | regole dichiarative in `setting.screening_selectors`: Tj, H, q, classe, CEU, watchlist, liste a mano. Aggiungerne una non è una modifica al codice |
 | pagina Candidati | ✅ | `/candidati`: chi è in lista, chi sta per essere perso, chi è sparito |
 | recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
-| aggiornamento automatico dei cataloghi | ⚠️ | il COMMIT di un import muore sul bind mount di macOS (`locking protocol`, e SIGBUS a servizio fermo): è la WAL di SQLite su virtiofs, diagnosi chiusa il 17 ago. Si risolve spostando il database in un volume Docker. Nel frattempo si importa **dall'host a servizio fermo** |
+| aggiornamento automatico dei cataloghi | ✅ | risolto il 17 ago spostando il database in un **volume Docker**: la WAL di SQLite non regge virtiofs. 1.557.104 oggetti importati dentro il container, a servizio acceso, in 140 s |
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
 | reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
@@ -193,19 +193,28 @@ docker compose exec sky42 python cli.py radar
 docker compose exec sky42 python cli.py candidati
 ```
 
-**Gli import dei cataloghi sono l'eccezione, e vanno fatti a servizio fermo dall'host:**
+**Il database del servizio sta in un volume Docker, non su `data/`.** Il bind
+mount di macOS passa da virtiofs e la WAL di SQLite non ci regge: il COMMIT di
+un import moriva con `locking protocol` a servizio acceso e con SIGBUS a
+servizio fermo (memorandum del 17 agosto). Dentro un volume il filesystem è
+ext4 nella VM, e l'import di 1.557.104 oggetti passa in 140 s con il servizio
+acceso.
+
+Su `data/` resta ciò che ha senso vedere e copiare: i cataloghi scaricati, le
+effemeridi, i log e i **backup** delle sei tabelle non rigenerabili — che sono
+l'unico ponte fra il volume e il mondo, e per questo contano più di prima.
+
+Ne segue che dall'host il database del servizio non è raggiungibile, ed è un
+bene: la regola «`cli.py` si esegue dentro il container» non è più una
+disciplina da ricordare, è l'unica cosa possibile.
+
+Per ricostruire tutto da zero — è progettato per costare poco:
 
 ```bash
-docker compose stop
-.venv/bin/python cli.py ingest all
-docker compose up -d
+docker compose exec sky42 python cli.py ingest all    # ~100 s
+docker compose exec sky42 python cli.py screening     # ~20 s
+docker compose exec sky42 python cli.py radar
 ```
-
-Il COMMIT di un import grande muore sul bind mount di macOS — `locking protocol`
-con il servizio acceso, SIGBUS con il servizio fermo, sempre sulla stessa riga.
-È la WAL di SQLite su virtiofs (memorandum del 17 agosto, domanda aperta 9), e
-si risolverà spostando il database in un volume Docker. Screening, radar e i
-watcher dei candidati girano invece bene dentro il container.
 
 Host e container che scrivono insieme sullo stesso file SQLite attraverso il
 bind mount è il modo documentato di corrompere un database: in WAL il

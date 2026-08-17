@@ -11,6 +11,8 @@ services:
 
     environment:
       SKY42_DATA_DIR: /app/data
+      # Il database sta nel volume, non sul bind mount. Vedi sotto.
+      SKY42_DB_PATH: /var/lib/sky42/sky42.db
       SKY42_HOST: "0.0.0.0"
       SKY42_PORT: "8000"
 
@@ -37,17 +39,33 @@ services:
       - "${SKY42_BIND_IP:-127.0.0.1}:8242:8000"
 
     volumes:
-      # Bind mount come brain42: il database, i cataloghi scaricati e i backup
-      # restano visibili nel Finder e raggiungibili dal copiatore esterno.
+      # **Il database sta in un volume Docker, non sul bind mount.** Il bind
+      # mount di macOS passa da virtiofs, e la WAL di SQLite non ci regge: il
+      # COMMIT di un import muore con `locking protocol` a servizio acceso e
+      # con **SIGBUS** a servizio fermo, sempre sulla stessa riga. Misurato il
+      # 2026-08-17 con un processo solo e nessun'altra connessione aperta; lo
+      # stesso import su APFS passa in 108 s. Dentro un volume il filesystem è
+      # ext4 nella VM di Docker, dove la memoria condivisa della WAL funziona.
       #
-      # Da qui discende una regola che vale solo per sky42, perché è l'unico dei
-      # tre ad avere una riga di comando che scrive: `cli.py` si esegue
-      # **dentro** il container
+      # Non si perde niente: il database *è* un indice rigenerabile (regola 1).
+      # Se il volume sparisce si riscarica il catalogo e si ricalcola tutto in
+      # pochi minuti — ed è esattamente la prova che quella regola chiede.
+      - sky42-db:/var/lib/sky42
+
+      # Sul bind mount resta ciò che ha senso vedere dal Finder e copiare
+      # altrove: i cataloghi scaricati, le effemeridi planetarie, i log e —
+      # soprattutto — i backup delle sei tabelle **non** rigenerabili, che sono
+      # l'unica cosa che non si ricostruisce da sé.
+      - ./data:/app/data
+
+      # `cli.py` si esegue **dentro** il container
       #
       #     docker compose exec sky42 python cli.py ingest all
       #
-      # e mai dall'host. SQLite in WAL coordina gli scrittori con un file di
-      # memoria condivisa che non attraversa il confine della VM: host e
-      # container che scrivono insieme sullo stesso file è il modo documentato
-      # di corrompere un database SQLite.
-      - ./data:/app/data
+      # e adesso è l'unico modo possibile: dall'host il database del servizio
+      # non è nemmeno raggiungibile, il che toglie di mezzo per costruzione il
+      # rischio di due scrittori sullo stesso file SQLite.
+
+volumes:
+  sky42-db:
+    name: sky42-db

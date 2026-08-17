@@ -44,22 +44,29 @@ SOURCES = {
     "PCCP": ("pccp", "https://www.minorplanetcenter.net/iau/NEO/pccp.txt", "pccp.txt"),
 }
 
-# I campi che decidono se vale la pena un nuovo snapshot. Due esclusioni, per
-# la stessa ragione: sono **orologi, non osservazioni**.
+# I campi che decidono se vale la pena un nuovo snapshot: quelli che dicono
+# **cosa l'MPC sa** dell'oggetto. Tre esclusioni, tutte per la stessa ragione —
+# cambiano da sole a ogni lettura, quindi non distinguono niente:
 #
-#   * la nota testuale dell'MPC cambia a ogni rigenerazione della pagina anche
-#     quando i numeri sono identici;
-#   * `not_seen_days` è «adesso meno l'ultima osservazione», quindi cresce da
-#     solo a ogni giro, per definizione. Misurato il 2026-08-17 al primo giro
-#     vero: 103 candidati, e fra due letture consecutive cambiava **solo**
-#     quello (0.179 → 0.183). Tenendolo nel confronto si scriveva un'istantanea
-#     per ogni candidato a ogni giro — 15.000 righe al giorno, cinque milioni
-#     l'anno: precisamente il rumore che questo confronto esiste per evitare.
+#   * la nota testuale, che cambia a ogni rigenerazione della pagina;
+#   * `not_seen_days`, che è «adesso meno l'ultima osservazione», cioè un
+#     orologio;
+#   * **RA e Dec**, che nella lista sono un'*effemeride* calcolata per
+#     l'istante in cui la si legge, non una misura: un candidato NEOCP si
+#     sposta di arcosecondi in pochi minuti.
 #
-# Il momento che conta — «è arrivata una nuova osservazione» — resta preso:
-# quando `not_seen_days` si azzera davvero, cambia anche `n_obs`.
-SNAPSHOT_FIELDS = ("ra_deg", "dec_deg", "v_mag", "n_obs", "arc_hours", "score",
-                   "h_mag")
+# Misurato il 2026-08-17, due giri consecutivi a sei minuti di distanza: fra i
+# due cambiavano soltanto `not_seen_days` (0.183 → 0.186) e la declinazione
+# (0.36″). Tenendoli nel confronto si scriveva un'istantanea per **ogni**
+# candidato a **ogni** giro: 15.000 righe al giorno, cinque milioni l'anno,
+# cioè esattamente il rumore che questo confronto esiste per evitare.
+#
+# Niente di importante sfugge. Una nuova osservazione muove `n_obs` e l'arco;
+# una nuova soluzione orbitale che sposta davvero l'oggetto viene da nuove
+# osservazioni, quindi muove gli stessi campi. E la posizione **corrente** —
+# quella che serve per puntare — sta sempre aggiornata sulla riga del
+# candidato, che è dove la si va a leggere.
+SNAPSHOT_FIELDS = ("v_mag", "n_obs", "arc_hours", "score", "h_mag")
 
 
 def poll(list_name: str, force: bool = False, local_path=None) -> dict:

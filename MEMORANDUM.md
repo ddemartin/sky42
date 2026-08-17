@@ -1902,13 +1902,25 @@ osservazioni**. La nota testuale dell'MPC cambia a ogni rigenerazione della
 pagina anche a numeri fermi; e `not_seen_days` è «adesso meno l'ultima
 osservazione», quindi cresce da solo per definizione.
 
-Il secondo l'avevo lasciato dentro, e si è visto al primo giro vero: 103
-candidati, 206 istantanee in pochi minuti, e fra due letture consecutive
-cambiava **solo** quello (0.179 → 0.183). Sarebbero state 15.000 righe al
-giorno, cinque milioni l'anno: esattamente il rumore che quel confronto esiste
-per evitare. Il momento che conta non si perde comunque — quando
-`not_seen_days` si azzera davvero, è perché è arrivata un'osservazione, e
-allora cambia `n_obs`.
+Ce n'è un terzo, e l'ho trovato solo guardando i numeri veri: **RA e Dec**.
+Nella lista non sono una misura, sono un'*effemeride calcolata per l'istante in
+cui la si legge* — e un candidato NEOCP si sposta di arcosecondi in pochi
+minuti. Misurato il 2026-08-17, due giri a sei minuti di distanza: fra i due
+cambiavano soltanto `not_seen_days` (0.179 → 0.183) e la declinazione (0.36″).
+Con quei tre campi nel confronto si scriveva un'istantanea per **ogni**
+candidato a **ogni** giro: 104 righe per giro, 15.000 al giorno, cinque milioni
+l'anno — esattamente il rumore che quel confronto esiste per evitare.
+
+La regola che ne esce, e che vale oltre questo caso: **si confronta ciò che
+qualcuno ha misurato, non ciò che si ricalcola da sé.** Niente sfugge — una
+nuova osservazione muove `n_obs` e l'arco, e una soluzione orbitale che sposta
+davvero l'oggetto viene da nuove osservazioni, quindi muove gli stessi campi. E
+la posizione *corrente*, quella che serve per puntare, sta sempre aggiornata
+sulla riga del candidato: la storia serve a un'altra domanda.
+
+Da correggere è servito guardare il database dopo venti minuti di esercizio, non
+rileggere il codice: la prima versione era ragionevole e sbagliata, e nessun
+test l'avrebbe presa senza sapere *quali* campi si muovono da soli.
 
 **Una lista vuota non chiude niente.** Un 200 con zero righe è un guasto della
 sorgente molto più spesso di un cielo tranquillo, e chiudere novanta candidati
@@ -2034,6 +2046,53 @@ dall'host (APFS, niente virtiofs), poi `docker compose up -d`. Screening, radar
 e watcher dei candidati invece girano bene dentro il container.
 ---
 
+## 2026-08-17 (sera) — il database in un volume Docker, e il guasto sparisce
+
+Fatta la strada 1. `SKY42_DB_PATH` separa il percorso del database da
+`DATA_DIR`: in container sta in `/var/lib/sky42/sky42.db`, che è un **volume
+Docker** (ext4 dentro la VM); sul bind mount restano i cataloghi scaricati, le
+effemeridi, i log e i backup — cioè tutto ciò che ha senso vedere dal Finder e
+copiare altrove.
+
+**La prova, che è la ragione per cui si è fatto.** Lo stesso import che ieri
+moriva sempre, oggi, *dentro il container e con il servizio acceso*:
+
+```
+1.557.104 oggetti importati, exit 0, 140 s
+```
+
+E dietro, la stessa catena completa senza un errore: ASTORB (1.557.186
+agganciati, 872 senza corrispondenza), CometEls, screening dei 14.900, radar.
+Il guasto aperto dal 16 agosto non esiste più — non è stato aggirato, è stato
+tolto di mezzo.
+
+**Tre conseguenze che vanno sapute.**
+
+1. **Dall'host il database del servizio non è più raggiungibile.** Non è una
+   perdita, è la stessa regola resa vera per costruzione: prima «`cli.py` si
+   esegue dentro il container» era una disciplina che si poteva violare per
+   distrazione — e il 17 agosto è stata violata, cancellando il database.
+   Adesso non c'è proprio niente da violare. Il `data/sky42.db` che resta
+   sull'host è stato rinominato `sky42.db.pre-volume`: inerte, cancellabile.
+2. **Il backup diventa più importante, non meno.** È l'unico ponte fra il
+   volume e il mondo: le sei tabelle non rigenerabili escono ogni notte su
+   `data/backup/`, che sta sul bind mount ed è quindi visibile e copiabile.
+   Verificato subito dopo la migrazione — e adesso quel backup contiene
+   qualcosa di vero: 104 candidati e 310 istantanee NEOCP.
+3. **Se il volume sparisce non è un disastro**, ed è precisamente ciò che la
+   regola 1 promette: si riscarica il catalogo e si ricalcola tutto in pochi
+   minuti. Il 17 agosto quella promessa è stata riscossa per intero, per
+   sbaglio, e ha retto.
+
+`ensure_dirs` crea anche `DB_PATH.parent`, che al primo avvio su un volume
+vuoto non esiste; e il `mkdir` + `chown` di `/var/lib/sky42` sta
+**nell'immagine**, perché Docker copia proprietario e permessi della directory
+dell'immagine dentro il volume nuovo la prima volta che lo monta. Senza, il
+volume nasce di root e il processo non ci scrive — sbagliato una volta e
+corretto in due minuti, ma è il genere di cosa che al primo avvio su una
+macchina nuova costerebbe mezz'ora.
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -2099,14 +2158,13 @@ Si chiudono con numeri misurati, non con previsioni.
    conviene un import differenziale (`.add`/`.del`) invece di un rifacimento.
    Con i controlli ogni 6 ore la risposta arriva da sola: basta contare i 304
    in `external_call` contro gli import in `job_run` dopo una settimana.
-9. **Il COMMIT di un import grande fallisce sul bind mount.** **Diagnosi
-   chiusa il 2026-08-17** (voce sopra): non sono i due scrittori e non è la
-   dimensione della transazione — un processo solo, a servizio fermo, muore di
-   **SIGBUS** sulla stessa riga (`conn.execute("COMMIT")`), mentre lo stesso
-   import dall'host su APFS passa in 108 s. È la WAL di SQLite su virtiofs.
-   Resta da **fare** la migrazione del database in un volume Docker, che è la
-   strada 1 già scritta il 16 agosto. Fino ad allora i cataloghi si aggiornano
-   a servizio fermo, dall'host.
+9. ~~**Il COMMIT di un import grande fallisce sul bind mount.**~~ **Chiusa il
+   2026-08-17.** Diagnosi: non erano i due scrittori né la dimensione della
+   transazione — un processo solo, a servizio fermo, moriva di **SIGBUS** sulla
+   stessa riga (`conn.execute("COMMIT")`), mentre lo stesso import dall'host su
+   APFS passava in 108 s. Era la WAL di SQLite su virtiofs. Soluzione: database
+   in un volume Docker (strada 1). Verificato lo stesso giorno: 1.557.104
+   oggetti importati **dentro il container, a servizio acceso**, in 140 s.
 10. **Serve un guardiano per il container piantato?** `restart: unless-stopped`
    copre il processo che *muore*; **Docker non riavvia un container
    `unhealthy`**, quindi un processo che si pianta resta lì finché qualcuno
