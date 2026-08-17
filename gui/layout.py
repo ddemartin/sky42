@@ -6,6 +6,8 @@ card si vede spenta, così la home dice sempre a che punto è il progetto.
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from nicegui import ui
 
 from core.config import APP_NAME
@@ -55,6 +57,21 @@ def header(subtitle: str = "") -> None:
             ui.label(subtitle).classes("text-sm opacity-80")
         ui.space()
         ui.label("console di follow-up del Sistema Solare").classes("text-sm opacity-60")
+
+
+def link_oggetto(desig: str) -> str:
+    """Il collegamento alla scheda di un oggetto, con la designazione codificata.
+
+    Sta qui e non nella pagina che lo usa perché i collegamenti fra pagine sono
+    un fatto del registro delle rotte, e perché ogni pagina che elenca oggetti
+    avrà bisogno dello stesso link.
+
+    Due cose che sembrano dettagli e non lo sono: il parametro si chiama
+    `desig` — con `q` la pagina si apre con il campo vuoto, che è
+    indistinguibile da «non trovato» — e le designazioni cometarie contengono
+    barre e spazi (`C/2019 E3`), che senza `quote` troncano l'URL.
+    """
+    return f"/oggetto?desig={quote(desig, safe='')}"
 
 
 def fmt_int(n) -> str:

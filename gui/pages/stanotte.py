@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 from nicegui import app, run, ui
 
-from gui.layout import cols, fmt_age, fmt_int, fmt_num, header, table
+from gui.layout import cols, fmt_age, fmt_int, fmt_num, header, link_oggetto, table
 from services import dashboard_service as dash
 
 log = logging.getLogger("sky42.gui.stanotte")
@@ -153,7 +153,7 @@ def _scheda(r: dict) -> None:
             with ui.column().classes("gap-0 min-w-64"):
                 ui.label(r["display_name"]).classes("font-bold cursor-pointer") \
                     .on("click", lambda d=r["primary_desig"]:
-                        ui.navigate.to(f"/oggetto?q={d}"))
+                        ui.navigate.to(link_oggetto(d)))
                 dettagli = [r["kind"], r.get("orbit_class") or ""]
                 if r.get("tisserand_j") is not None:
                     dettagli.append(f"Tj {fmt_num(r['tisserand_j'], 2)}")

@@ -269,6 +269,30 @@ async def test_stanotte_si_disegna_con_la_catena_accesa(user: User, sito_e_scree
     await user.should_see("finestre")
 
 
+def test_il_link_alla_scheda_usa_il_parametro_giusto_e_codifica():
+    """Regressione: il collegamento puntava a `?q=`, che la pagina Oggetto
+    ignora — si apriva una scheda vuota, indistinguibile da «non trovato». E le
+    designazioni cometarie hanno barre e spazi, che senza `quote` troncano
+    l'URL."""
+    from gui.layout import link_oggetto
+
+    assert link_oggetto("3200") == "/oggetto?desig=3200"
+    assert link_oggetto("C/2019 E3") == "/oggetto?desig=C%2F2019%20E3"
+    assert "?q=" not in link_oggetto("C/2019 E3")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto",
+                               "gui.pages.stanotte")
+async def test_il_link_costruito_apre_davvero_la_scheda(user: User, catalogo_minimo):
+    """Il link non si verifica come stringa e basta: si apre, e dentro ci deve
+    essere l'oggetto. È il giro che era rotto."""
+    from gui.layout import link_oggetto
+
+    await user.open(link_oggetto("C/1995 O1"))
+    await user.should_see("Hale-Bopp")
+    await user.should_see("Tj =")
+
+
 @pytest.mark.module_under_test("gui.pages.home", "gui.pages.stanotte")
 async def test_stanotte_regge_il_database_vuoto(user: User, db):
     """Chi apre la pagina prima che i job abbiano girato deve leggere *perché*
