@@ -16,11 +16,21 @@ from core.timeutil import now_iso
 log = logging.getLogger("sky42.db")
 
 # Versione dello schema. Si alza quando si aggiunge una migrazione a MIGRATIONS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Migrazioni successive alla prima creazione: {versione: [istruzioni SQL]}.
 # Devono essere idempotenti e non distruttive.
-MIGRATIONS: dict[int, list[str]] = {}
+MIGRATIONS: dict[int, list[str]] = {
+    # 2 — il radar: il candidato in attesa di conferma, e il profilo di
+    # punteggio iniziale. Le colonne mancavano perché la macchina a stati non
+    # c'era; `ALTER TABLE ADD COLUMN` non tocca i dati esistenti e gira una
+    # volta sola, protetta da `user_version`.
+    2: [
+        "ALTER TABLE target_state ADD COLUMN pending_state TEXT",
+        "ALTER TABLE target_state ADD COLUMN pending_since TEXT",
+        "ALTER TABLE target_state ADD COLUMN pending_count INTEGER NOT NULL DEFAULT 0",
+    ],
+}
 
 
 def connect(readonly: bool = False) -> sqlite3.Connection:
@@ -79,11 +89,37 @@ def init_db() -> None:
             if version > current:
                 log.info("migrazione schema -> %d", version)
                 for stmt in MIGRATIONS[version]:
-                    conn.execute(stmt)
+                    _migrate(conn, stmt)
                 conn.execute(f"PRAGMA user_version={version}")
+        # Fuori dal ciclo delle migrazioni: è un dato di partenza, non una
+        # modifica di schema, e deve comparire anche nei database creati prima
+        # che il ranking esistesse. `INSERT OR IGNORE` sul nome, quindi un
+        # profilo modificato a mano non viene mai riscritto.
+        _seed_scoring_profile(conn)
     finally:
         conn.close()
     close_orphaned_jobs()
+
+
+def _migrate(conn: sqlite3.Connection, stmt: str) -> None:
+    """Esegue un'istruzione di migrazione, tollerando che sia già stata applicata.
+
+    `user_version` si alza **dopo** l'ultima istruzione del gruppo: se una
+    migrazione da tre `ALTER TABLE` si interrompe alla seconda, la versione
+    resta indietro e al riavvio si riparte dalla prima — che a quel punto
+    fallirebbe con «duplicate column name» e lascerebbe il database bloccato a
+    ogni avvio, per sempre. Una colonna che c'è già è esattamente il risultato
+    voluto, quindi si tira dritto.
+
+    Qualunque altro errore si rilancia: una migrazione che fallisce davvero
+    deve fermare l'avvio e comparire nel log, non passare inosservata.
+    """
+    try:
+        conn.execute(stmt)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc):
+            raise
+        log.debug("migrazione già applicata, salto: %s", stmt)
 
 
 def close_orphaned_jobs(older_than_hours: int = 2) -> int:
@@ -134,6 +170,38 @@ def _seed(conn: sqlite3.Connection) -> None:
     conn.executemany(
         "INSERT OR IGNORE INTO setting (key, value, updated_at) VALUES (?,?,?)",
         [(k, json.dumps(v), now_iso()) for k, v in settings.items()],
+    )
+    _seed_scoring_profile(conn)
+
+
+def _seed_scoring_profile(conn: sqlite3.Connection) -> None:
+    """Il profilo di punteggio di partenza, **solo se non ce n'è nessuno**.
+
+    I pesi vivono nel database e non nel codice (regola 5): questo è il punto
+    da cui muoversi guardando le classifiche vere, non un valore giusto. Il
+    codice ne tiene una copia come default — `core.ranking.score` — perché il
+    calcolo deve funzionare anche su un database in cui qualcuno ha cancellato
+    tutti i profili.
+
+    La condizione è «la tabella è vuota» e non «manca quello che si chiama
+    default»: chi ha cancellato il profilo di partenza per sostituirlo con il
+    proprio non deve vederselo tornare a ogni avvio, e riapparire *attivo*
+    accanto al suo sarebbe anche peggio.
+    """
+    import json
+
+    from core.ranking.score import DEFAULT_GATES, DEFAULT_GRADES, DEFAULT_WEIGHTS
+
+    if conn.execute("SELECT count(*) FROM scoring_profile").fetchone()[0]:
+        return
+
+    conn.execute(
+        """INSERT OR IGNORE INTO scoring_profile
+               (name, target_kind, weights, gates, active, updated_at)
+           VALUES ('default', NULL, ?, ?, 1, ?)""",
+        (json.dumps(DEFAULT_WEIGHTS),
+         json.dumps({**DEFAULT_GATES, "grades": DEFAULT_GRADES}),
+         now_iso()),
     )
 
 

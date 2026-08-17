@@ -85,17 +85,22 @@ core/
 ├── ingest/cometels.py  le comete. q e Tp, mai a e M
 ├── ingest/{neocp,pccp,mpec}.py     ⏳ M2
 ├── orbits/elements.py  derivati e **Tisserand**. L'unico posto dove Tj si calcola
-├── orbits/kepler.py    ⏳ M1 il solutore vettoriale: array di elementi × array di
+├── orbits/kepler.py    ✅ il solutore vettoriale: array di elementi × array di
 │                       epoche, nessun ciclo Python sugli oggetti
-├── orbits/photometry.py ⏳ M1 H-G per gli asteroidi, m1/k1 per le comete. Le due
+├── orbits/photometry.py ✅ H-G per gli asteroidi, m1/k1 per le comete. Le due
 │                       non si mescolano: una cometa con H asteroidale è un bug
-├── orbits/positioner.py ⏳ M1 il contratto verso il resto del mondo:
+├── orbits/positioner.py ✅ il contratto verso il resto del mondo:
 │                       `positions(target, jd) -> RA, Dec, Δ, r, V, motion`.
 │                       Chi sta a valle non sa quale implementazione è in uso
-├── visibility/         ⏳ M1 night, geometry, sky, limits, trailing, windows
-├── ranking/            ⏳ M1 feature 0-1 e pesi da `scoring_profile`
-├── radar/              ⏳ M1 macchina a stati, returning, comete, candidati
-├── sites/reconcile.py  ⏳ M1 da config/sites/*.yml a observatory/telescope/
+├── visibility/         ✅ night, geometry, sky, limits, trailing, windows
+├── ranking/            ✅ feature 0-1 in due gruppi (interesse, fattibilità),
+│                       pesi da `scoring_profile`. Una feature che non si può
+│                       calcolare è None e sparisce dalla media, non vale zero
+├── radar/screening.py  ✅ le due griglie, i BLOB, la distillazione. Non tocca
+│                       il database: riceve `Body` e restituisce array
+├── radar/states.py     ✅ la macchina a stati. Legge quel che lo screening ha
+│                       distillato e non ricalcola **nessuna** posizione
+├── sites/reconcile.py  ✅ da config/sites/*.yml a observatory/telescope/
 │                       camera/setup, con scala e campo derivati dalla focale
 └── external/           ⏳ M2 confine verso JPL, con budget e cache
 services/
@@ -104,6 +109,11 @@ services/
 ├── catalog_service.py  letture per l'interfaccia. Nessuna scrittura
 ├── backup_service.py   copia le sole tabelle non rigenerabili. Il catalogo no:
 │                       quello si riscarica in 100 secondi
+├── screening_service.py    la popolazione monitorata, i blocchi, le INSERT
+│                       di `screening_track` e `target_stats`
+├── radar_service.py    V_ref per setup, stati, transizioni. Nessun calcolo
+│                       di posizioni: se ne compare uno, sta nel posto sbagliato
+├── ranking_service.py  il profilo attivo dal database e il contesto dell'oggetto
 ├── maintenance_service.py  pota i registri, riallinea le statistiche
 └── scheduler.py        APScheduler dentro questo processo. Non si avvia se
                         SKY42_TESTING è impostata, o una suite di test
@@ -142,10 +152,10 @@ job, ogni job idempotente e con una riga in `job_run`.
 | `neocp_poll` | ⏳ M2, 10 min | lista NEOCP → candidati e snapshot |
 | `pccp_poll` | ⏳ M2, 20 min | lista PCCP |
 | `mpec_poll` | ⏳ M2, 30 min | circolari recenti, e il **destino** dei candidati |
-| `screening` | ⏳ M1, 1/giorno | propagazione 24 mesi avanti + 15 anni indietro |
-| `radar_states` | ⏳ M1, dopo screening | stati, transizioni, `target_stats` |
-| `night_plan` | ⏳ M1, 1/giorno per sito | crepuscoli e Luna |
-| `windows` | ⏳ M1, dopo `night_plan` | finestre e score per (target × setup) |
+| `screening` | 02:10 UTC | propagazione 24 mesi avanti + 15 anni indietro, `target_stats` |
+| `radar_states` | 02:40 UTC | stati e transizioni per (target × setup), con isteresi |
+| `night_plan` | ogni 6 h, :50 | crepuscoli e Luna, due settimane avanti per sito |
+| `windows` | ⏳ dopo `night_plan` | finestre e score per (target × setup), in massa |
 | `horizons_verify` | ⏳ M2 | solo shortlist, con budget |
 
 **Le cadenze a ore fisse si evitano.** Le sorgenti pubblicano a orari che si
@@ -239,8 +249,9 @@ gira all'avvio e deve essere idempotente.
 
 ## Da dove si riparte
 
-M0 è chiuso. Di **M1** è fatta tutta la catena di calcolo, ognuno dei pezzi con
-il suo test di verità contro Horizons dove una verità esiste:
+M0 è chiuso. Di **M1** è fatta tutta la catena di calcolo, dal catalogo al
+punteggio, ognuno dei pezzi con il suo test di verità contro Horizons dove una
+verità esiste:
 
 ```
 core/orbits/kepler.py       ✅ due rami (Newton su E, variabili universali)
@@ -251,28 +262,30 @@ core/orbits/positioner.py   ✅ positions(body, jd), astrometrico geocentrico
 core/visibility/night.py    ✅ crepuscoli e Luna per sito
 core/visibility/geometry.py ✅ alt/az, airmass, separazioni
 core/visibility/sky.py      ✅ Krisciunas & Schaefer, somma in flusso
-core/visibility/limits.py   ✅ eff_vlim con le quattro penalità che sommano
+core/visibility/limits.py   ✅ eff_vlim con le quattro penalità che sommano,
+                               e reference_limit: V_ref a X=1.5, il metro del radar
 core/visibility/windows.py  ✅ finestra geometrica e finestra utile, separate
+core/radar/screening.py     ✅ due griglie (24 mesi avanti, 15 anni indietro),
+                               tracce in BLOB float32, distillazione vettoriale
+core/radar/states.py        ✅ sei stati, isteresi 0.15 mag, conferma su due giri
+core/ranking/               ✅ dieci feature 0-1 in due gruppi, pesi dal profilo
 ```
 
-Restano i tre pezzi che trasformano una scheda per oggetto in una lista di
-stanotte, e l'ordine non è indifferente:
+Sul catalogo vero: **14.899 oggetti monitorati, screening in 18 s, radar in 1 s**.
 
-1. **`core/radar/screening.py`** — propagare i ~14.000 oggetti 24 mesi avanti e
-   15 anni indietro, scrivere `screening_track` e distillare `target_stats`. È
-   ciò che **produce la lista**: finché non c'è, tutto il resto sa rispondere
-   solo su un oggetto che qualcuno ha già nominato. La propagazione costa 2.4 s
-   per 14.000 × 730 epoche, ma va a blocchi: quella griglia intera è ~490 MB.
-2. **`core/radar/states.py`** — stati e transizioni, isteresi 0.15 mag. Legge
-   `target_stats` e non ricalcola niente.
-3. **`core/ranking/`** — feature 0-1, pesi da `scoring_profile`, `score_json`
-   sempre salvato accanto allo score.
+Quel che resta di M1, nell'ordine:
 
-Poi la dashboard Tonight, che a quel punto è una query e non un calcolo, e il
-job che scrive `observation_window` in massa: oggi `observation_window` la
-chiama una pagina, un oggetto alla volta, e il calcolo non cambierà — cambierà
-chi lo invoca.
+1. **Il job che scrive `observation_window` in massa** per (target × setup).
+   Oggi le finestre le calcola la pagina Oggetto, un oggetto alla volta: il
+   calcolo non cambierà, cambierà chi lo invoca. Finché non c'è, il radar
+   giudica sulla sola magnitudine (`useful_hours=None` significa «non lo so»,
+   e il criterio sulla durata si accende da solo quando la mappa si riempie).
+2. **La dashboard Tonight / Coming into range / Tj < 3**, che a quel punto è
+   una query e non un calcolo.
+3. **`BEST SITE TONIGHT`**, che è la stessa query ordinata per sito — e che
+   vale quanto valgono i `vlim_ref` dichiarati (domanda aperta 5).
 
-Due cose da tenere d'occhio: il database sta già a 1 GB e `screening_track` lo
-farà crescere (voce nel memorandum), e il polling NEOCP di M2 **conviene
-anticiparlo** se M1 si allunga — quella storia non si recupera a posteriori.
+Due cose da tenere d'occhio: `screening_track` ha portato il database da 1,17 a
+1,43 GB e cresce linearmente con la popolazione monitorata (voce nel
+memorandum); e il polling NEOCP di M2 **conviene anticiparlo** — quella storia
+non si recupera a posteriori.

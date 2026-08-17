@@ -1536,6 +1536,289 @@ usato finora), e `/health` adesso dice `degraded` quando i sync non girano.
 
 ---
 
+## 2026-08-17 — lo screening: due griglie, non una
+
+`screening_track` ha un solo `jd_start` e un solo `step_days`, quindi può
+contenere **una** griglia. Le domande però sono due e non hanno la stessa
+risoluzione: «quando torna a portata» vuole un passo di un giorno sui prossimi
+24 mesi; «da quanto non era osservabile» vuole quindici anni all'indietro, dove
+un passo fine non ha senso perché la propagazione a due corpi ha già derivato.
+
+Si scrive **solo la griglia in avanti** (731 campioni giornalieri, i sei array
+del contratto del positioner) e la griglia all'indietro (548 campioni ogni 10
+giorni) si usa **solo per distillare** `last_good_apparition_jd`, senza
+salvarla. All'indietro si calcola per giunta la sola magnitudine: RA e Dec di
+sette anni fa non li guarderà nessuno, e sono cinque array in meno per blocco.
+
+L'alternativa — una seconda tabella `screening_track_back` — raddoppiava lo
+schema per un dato che si consuma una volta e si riduce a un numero. Se un
+domani servisse il grafico dell'apparizione passata, si ricalcola: costa 0.09 s
+per cinquecento oggetti.
+
+**Perché il passo indietro è 10 giorni e non 30.** Un'apparizione di un NEO
+dura settimane: a passo mensile un'apparizione buona sparisce fra due campioni
+e l'oggetto risulterebbe «mai a portata in 15 anni» — che è esattamente
+l'errore che porterebbe a osservare la cosa sbagliata. A 10 giorni un'apparizione
+di un mese ha tre campioni.
+
+---
+
+## 2026-08-17 — la traccia si scrive in float32, e costa 261 MB
+
+Misurato sul catalogo vero: 14.899 oggetti × 731 campioni × 6 serie × 4 byte =
+**261 MB**, e il database passa da 1.167 a 1.434 GB. È il prezzo previsto dalla
+voce del 15 agosto sui BLOB, ed è pagato una volta: lo screening riscrive le
+stesse righe, non ne accumula.
+
+float32 e non float64 perché queste serie servono a **cercare**, non a puntare:
+sette cifre significative su una magnitudine sono quattro ordini di grandezza
+più di quel che qualunque soglia dello screening distingue. In float64 sarebbero
+522 MB per la stessa identica informazione.
+
+Da tenere d'occhio: la crescita è lineare nella popolazione monitorata. Se un
+domani si allargasse la soglia a Tj < 3.05 (domanda aperta 6, +64% di oggetti)
+si arriverebbe a ~430 MB di sole tracce, e a quel punto conviene decidere se le
+serie servono tutte e sei o se `r`, `Δ` ed elongazione si ricalcolano al volo
+dai pochi oggetti che si guardano davvero.
+
+---
+
+## 2026-08-17 — quanto costa lo screening completo: 18 secondi
+
+**Chiude la domanda aperta n. 3.** Sul Mac mini, dentro il container, sulla
+popolazione vera:
+
+```
+14.899 oggetti monitorati   (13.945 ACO + 954 comete + watchlist)
+   731 epoche avanti + 548 indietro
+    30 blocchi da 500
+    18 s totali             propagazione + fotometria + BLOB + INSERT
+```
+
+La sola propagazione, misurata a parte sul portatile, è 9 s per l'intera
+popolazione (0.22 s avanti + 0.09 s indietro per blocco da 500); il resto è
+scrittura. La distillazione è rumore: 4 ms per blocco.
+
+Ne segue la risposta che serviva: **si può rifare tutto ogni giorno**, e non
+serve dividere in popolazione monitorata e giro completo settimanale. Il job è
+a 02:10 UTC, dopo il sync della notte.
+
+Il blocco è 500 oggetti e non 20.000 come negli import: 20.000 orbite × 730
+epoche sono ~490 MB di float64 fra posizioni e velocità (misura del 16 agosto),
+mentre a 500 la griglia sta in ~18 MB e il job resta interrompibile ogni mezzo
+secondo. `SKY42_SCREENING_BLOCK` esiste per poterlo cambiare senza toccare il
+codice, ma il valore non è arbitrario: è memoria diviso costo.
+
+**E il `locking protocol` non si è presentato.** Trenta transazioni da ~9 MB
+ciascuna, dal processo di `cli.py` dentro il container, con l'app che teneva la
+sua connessione aperta: nessun errore. Non chiude la domanda aperta 9 — l'import
+fallisce ancora — ma la restringe parecchio: non è «una transazione grande», o
+sarebbe fallito anche qui. Il sospetto si sposta sul numero di pagine toccate
+dagli indici di `orbit` durante un import, non sulla dimensione del COMMIT.
+
+---
+
+## 2026-08-17 — un solo V_ref per `target_stats`, il migliore
+
+`target_stats` è per oggetto, non per (oggetto × setup): serve a rispondere
+«questo oggetto è alla portata di *qualcosa* che ho». La soglia con cui si
+distillano `visibility_start_jd` e `last_good_apparition_jd` è quindi
+**l'`eff_vlim` di riferimento del setup attivo più profondo** — oggi 21.06 per
+il RC700+QHY600 in Cile.
+
+Gli stati per singolo setup li calcola `radar_states`, che usa lo stesso metro
+setup per setup più una riga di rollup con `setup_id NULL`. Le due cose devono
+coincidere: se lo screening distillasse con una soglia e il radar giudicasse con
+un'altra, la dashboard direbbe OBSERVABLE su statistiche calcolate per un altro
+strumento.
+
+Conseguenza da sapere: **cambiare hardware invalida `target_stats`**. Un setup
+nuovo e più profondo sposta V_ref, e le statistiche vanno rifatte — cosa che
+succede da sola al giro successivo, in 18 secondi. È un altro modo di dire che
+`target_stats` è rigenerabile e non entra nel backup (regola 1).
+
+---
+
+## 2026-08-17 — `V_ref` si misura invertendo la nostra airmass, non la secante
+
+Il riferimento del radar è «X = 1.5, niente Luna, niente crepuscolo, posa
+tipica». Per sapere a quale altezza corrisponde X = 1.5 si potrebbe scrivere
+`arccos(1/1.5) = 48.19°` di distanza zenitale e finirla lì. Invece
+`limits.altitude_for_airmass` **inverte per bisezione la Kasten & Young** che è
+l'unica airmass che il resto del codice conosce.
+
+La differenza è di due centesimi di grado e di 0.003 mag: irrilevante. La
+ragione non è la precisione, è che così esiste **un solo modello di airmass nel
+progetto**. Il giorno in cui la formula cambiasse — o si aggiungesse la
+rifrazione — il riferimento del radar si sposterebbe insieme a tutto il resto,
+invece di restare indietro in silenzio.
+
+---
+
+## 2026-08-17 — isteresi *e* conferma: sono due difese contro rumori diversi
+
+Il memorandum del 15 agosto aveva deciso l'isteresi a 0.15 mag. Scrivendo la
+macchina a stati è emerso che difende da un rumore solo.
+
+* **Isteresi** (0.15 mag): difende dall'**oggetto** che sta sulla soglia. Per
+  uscire da uno stato bisogna superarla di un margine, non sfiorarla. Le soglie
+  si spostano *rispetto allo stato attuale*, quindi la banda morta è solo dalla
+  parte da cui si uscirebbe.
+* **Conferma su due calcoli** consecutivi: difende dal **calcolo** che cambia
+  idea. Elementi orbitali aggiornati da un sync, una CEU nuova, un V_ref che si
+  sposta perché è cambiato l'hardware: nessuno di questi è un fatto astronomico,
+  e nessuno deve produrre una notifica.
+
+Senza la prima, un oggetto che ondeggia di ±0.1 mag genera venti transizioni; e
+c'è un test che gliene fa fare venti e pretende zero transizioni. Senza la
+seconda, le genererebbe l'MPC ogni volta che ricalcola un'orbita. Il prezzo è
+**latenza**: una discesa vera arriva a PRIME con due giri di ritardo per
+gradino, cioè due giorni. Su un oggetto che torna dopo vent'anni, due giorni
+non sono niente; su un NEOCP lo sarebbero, ed è il motivo per cui i candidati
+di M2 non passeranno da questa macchina.
+
+Lo stato in attesa vive in `target_state.pending_state/pending_since/
+pending_count` (migrazione 2). Tenerlo in memoria era impossibile — il job gira
+in un processo che muore ogni volta — e tenerlo in `state_transition` avrebbe
+sporcato la sola tabella che è **storia** con dei forse.
+
+**`CROSSES_LIMIT` è uno stato e non solo una riga di transizione**, perché la
+dashboard deve poter chiedere «chi ha attraversato il limite oggi» con una
+query sola. Sta nella stessa banda di isteresi di OBSERVABLE, o
+l'attraversamento diventerebbe un posto in cui si resta.
+
+E **si assesta senza conferme e senza lasciare traccia**: da `CROSSES_LIMIT` a
+`OBSERVABLE`/`PRIME` si passa subito, `changed = False`. Con la regola generale
+sarebbero serviti due giri anche per uscirne — l'evento sarebbe durato tre
+giorni invece di uno — e soprattutto ogni attraversamento avrebbe scritto in
+`state_transition` una seconda riga `CROSSES_LIMIT → OBSERVABLE` puramente
+meccanica. Quella tabella è **storia** e sta nel backup: una riga che non
+racconta niente lì dentro costa più di quanto valga. L'uscita verso il basso
+(ricade fuori portata) passa invece dalle conferme come tutte le altre.
+
+`pending_since` è l'istante del **primo** giro in cui quel candidato si è
+presentato, e si porta avanti finché il candidato non cambia. Riscriverlo ogni
+volta sarebbe corretto per caso con due conferme, e racconterebbe la cosa
+sbagliata appena `CONFIRMATIONS` salisse: «da quanto sta insistendo» è
+esattamente la domanda che ci si fa guardando uno stato che non si decide.
+
+**`FADING` batte `PRIME`.** Un oggetto sotto il limite ma oltre il picco è
+FADING anche se brilla: la domanda del radar è «conviene aspettare o è l'ultima
+occasione», e la sola magnitudine non la distingue.
+
+---
+
+## 2026-08-17 — il rollup ha `setup_id NULL`, e per questo si riscrive tutto
+
+`target_state` ha chiave primaria (target_id, setup_id) e la riga di rollup —
+«il migliore fra tutti i setup» — ha `setup_id NULL`. In SQLite **due NULL non
+sono uguali fra loro**, quindi un `INSERT OR REPLACE` non trova mai la riga di
+rollup precedente e ne aggiunge una nuova a ogni giro: dopo un mese sarebbero
+trenta righe di rollup per oggetto, e la dashboard ne mostrerebbe una a caso.
+
+Il job svuota `target_state` e la riscrive dentro la stessa transazione. È
+lecito perché lo stato corrente è rigenerabile per costruzione: la storia sta
+in `state_transition`, che non si tocca mai ed è una delle cinque tabelle del
+backup.
+
+---
+
+## 2026-08-17 — il ranking: due gruppi, feature assenti che spariscono, e i cancelli
+
+Il modello (docs/modelli.md §11) chiedeva feature 0-1 e una combinazione
+lineare. Tre scelte non erano nel modello e vanno scritte.
+
+**1. Una feature che non si può calcolare è `None`, e sparisce da numeratore
+*e* denominatore.** Un'iperbolica senza Tisserand non è un oggetto con
+Tisserand alto; una cometa senza `last_obs_date` non è una cometa osservata
+ieri. L'alternativa — sostituire uno zero — punisce l'ignoranza come se fosse
+un difetto dell'oggetto, e in un catalogo dove metà delle righe non ha CEU
+significa ordinare per completezza dei metadati. Il prezzo, che va saputo: due
+oggetti con feature diverse hanno **denominatori diversi**, e i loro punteggi
+sono confrontabili solo in quanto medie. `score_json` porta `weight_total`
+appunto per poterlo vedere.
+
+**2. La watchlist è un termine come gli altri, ma vale `None` quando l'oggetto
+non c'è.** Così è un vero bonus: mettere qualcosa in watchlist alza il suo
+punteggio senza abbassare quello di tutti gli altri con un termine a zero.
+
+**3. Fuori dai cancelli `score` è `None`, non zero.** Zero è un punteggio e
+significa «ultimo in classifica»; un ultimo posto si guarda comunque. `None`
+con `grade = NOT_USEFUL` significa «non pertinente stanotte», e `score_json`
+dice **quale** cancello — che è la domanda della mattina dopo, non «perché è
+ultimo».
+
+I due gruppi restano separati anche nell'uscita (`interest`, `feasibility`,
+ciascuno normalizzato sui propri pesi): «alto perché mi interessa» e «alto
+perché riesce bene» sono due risposte diverse alla stessa cifra, e sommarle in
+un numero solo cancella la domanda con cui si tara il profilo.
+
+**I pesi di partenza sono nel database, non nel codice.**
+`_seed_scoring_profile` inserisce il profilo `default` e gira a ogni avvio,
+perché anche i database creati prima del ranking devono averlo. La condizione è
+**«la tabella è vuota»**, non «manca una riga che si chiama default»: chi
+cancella il profilo di partenza per sostituirlo con il proprio non deve
+vederselo tornare — e tornare *attivo* accanto al suo, dove a parità di
+specificità si sarebbe giocato la classifica con lui. Per lo stesso motivo
+`active_profile` ordina anche per `id DESC`: a parità di specificità vince
+l'ultimo scritto, e la scelta è ripetibile. Il codice
+tiene la stessa copia come default per il caso in cui qualcuno cancelli tutti i
+profili: un ranking deve produrre una classifica, non un errore.
+
+---
+
+## 2026-08-17 — le migrazioni tollerano di essere già state applicate
+
+`user_version` si alza **dopo** l'ultima istruzione del gruppo. Una migrazione
+da tre `ALTER TABLE` che si interrompe alla seconda lascia quindi la versione
+indietro, e al riavvio si ripartirebbe dalla prima — che fallirebbe con
+`duplicate column name` e bloccherebbe l'avvio **a ogni avvio, per sempre**.
+
+`_migrate` esegue e ingoia il solo `duplicate column name`: una colonna che c'è
+già è esattamente il risultato voluto. Qualunque altro errore si rilancia, o
+una migrazione rotta passerebbe inosservata. C'è un test che simula proprio
+l'interruzione a metà.
+
+L'alternativa — leggere `PRAGMA table_info` prima di ogni ALTER — è più
+esplicita e più lunga, e sposta il controllo su chi scrive la migrazione invece
+che sul meccanismo. Qui la regola è una sola e vale per tutte.
+
+---
+
+## 2026-08-17 — dove sta, adesso, il calcolo delle finestre
+
+`window_service.tonight` adesso chiama anche il ranking: ogni finestra esce con
+`score`, `grade` e `score_json`. **Il calcolo della finestra non è cambiato di
+una riga** — è cambiato solo che qualcuno gli attacca un punteggio dopo.
+
+Resta vero quel che era vero ieri: le finestre le calcola una **pagina**, un
+oggetto alla volta, e `observation_window` sul database è ancora vuota. Il job
+che la riempie in massa per (target × setup) è il prossimo pezzo, e quando
+arriverà cambierà chi invoca `observation_window`, non cosa calcola. Finché non
+c'è, il radar giudica sulla sola magnitudine: `states.classify` riceve
+`useful_hours=None`, che significa «non lo so», e il criterio sulla durata (2 h
+per PRIME, 0.5 h per OBSERVABLE) si accenderà da solo il giorno in cui la mappa
+si riempirà.
+
+---
+
+## 2026-08-17 — la prima lista vera
+
+Il senso di tutto il lavoro, in tre righe uscite dal database la prima volta
+che lo screening ha girato sul catalogo completo:
+
+```
+2005 VT36   Tj 2.83   V 19.8 (picco 19.3)   non osservato da 20.8 anni   PRIME
+2004 PB66   Tj 2.96   V 20.8 (picco 20.3)   non osservato da 21.9 anni   OBSERVABLE
+2001 XP1    Tj 2.56   V 21.0 (picco 19.7)   non osservato da 14.7 anni   OBSERVABLE
+```
+
+Sul rollup del setup migliore (V_ref 21.06): 295 PRIME, 330 OBSERVABLE, 840
+FADING, 1.585 APPROACHING, 11.844 OUT_OF_RANGE. Le proporzioni sono
+plausibili — il 4% della popolazione a portata in una notte qualsiasi — e sono
+il primo dato con cui si potrà tarare qualcosa.
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1553,12 +1836,13 @@ Si chiudono con numeri misurati, non con previsioni.
    Horizons a 1, 6, 12, 24 mesi, in posizione e in magnitudine, su un campione
    di 50 oggetti stratificato per classe orbitale. Se in magnitudine si resta
    sotto 0.3 mag, l'architettura regge come progettata; sopra, va rivista.
-3. **Quanto ci mette lo screening completo sul Mac mini?** Se è sotto i cinque
-   minuti si può rifare ogni giorno su tutto; se è un'ora, va diviso in una
-   popolazione monitorata e un giro completo settimanale. **Metà risposta il
-   2026-08-16:** la sola propagazione dei 14.000 su 730 epoche costa 2,4 s
-   (voce sopra). Manca il resto della catena — Terra da Skyfield, tempo luce,
-   fotometria, finestre — che è dove il tempo andrà davvero.
+3. ~~**Quanto ci mette lo screening completo sul Mac mini?**~~ **Chiusa il
+   2026-08-17: 18 secondi** per 14.899 oggetti, 731 epoche avanti e 548
+   indietro, tracce e statistiche scritte comprese (voce sopra). Ben sotto i
+   cinque minuti che erano la soglia della domanda: si rifà tutto ogni giorno,
+   e non serve dividere in popolazione monitorata e giro settimanale. Resta
+   fuori il calcolo delle **finestre** per (target × setup), che è l'altro
+   lavoro di massa e non è ancora un job: la sua misura è la prossima.
 4. **Il coefficiente 0.55 mag/grado del crepuscolo.** Va misurato con
    `setup_calibration` e sostituito. Oggi è una stima. **Aggiornamento
    2026-08-16:** il codice è già pronto a riceverne uno per sito
@@ -1567,7 +1851,12 @@ Si chiudono con numeri misurati, non con previsioni.
    Serve anche decidere *come* si misura: la magnitudine limite raggiunta in
    pose di crepuscolo contro quelle di notte piena, sullo stesso campo e con la
    stessa posa, è la strada più corta.
-5. **`vlim_ref` dichiarato contro misurato.** Di quanto sbaglia la stima
+5. **`vlim_ref` dichiarato contro misurato.** **Aggravata di nuovo il
+   2026-08-17:** adesso ci si appoggia anche `V_ref`, cioè la soglia di *tutti*
+   gli stati del radar e la soglia con cui lo screening distilla
+   `visibility_start_jd` e `last_good_apparition_jd`. Mezza magnitudine di
+   errore su `vlim_ref` sposta la data di rientro di settimane. Domanda
+   originale: Di quanto sbaglia la stima
    iniziale su ciascun setup? È la taratura che rende sensato tutto il resto,
    perché ogni soglia del radar ci si appoggia. **Aggravata il 2026-08-16:**
    `eff_vlim` misura le penalità rispetto alla notte migliore *di quel sito*,
@@ -1581,14 +1870,23 @@ Si chiudono con numeri misurati, non con previsioni.
    di interessante o solo coda della fascia principale: si risponde
    incrociandoli con la classe orbitale, come fatto per la soglia stretta.
 7. **Quante transizioni di stato al giorno?** Decide se le notifiche sono un
-   messaggio o un digest, e se l'isteresi a 0.15 mag è abbastanza.
+   messaggio o un digest, e se l'isteresi a 0.15 mag è abbastanza. **Misurabile
+   dal 2026-08-17:** il primo giro non produce transizioni per costruzione (uno
+   stato iniziale non è un cambiamento), quindi la risposta arriva dal secondo
+   giorno contando le righe di `state_transition` con `setup_id IS NULL`. Il
+   punto di partenza: 295 PRIME, 330 OBSERVABLE, 840 FADING, 1.585 APPROACHING
+   sul rollup del setup migliore.
 8. **Ogni quanto cambia davvero `astorb.dat`?** Il download è condizionale su
    ETag; se il file cambia ogni giorno ma le orbite che ci interessano no,
    conviene un import differenziale (`.add`/`.del`) invece di un rifacimento.
    Con i controlli ogni 6 ore la risposta arriva da sola: basta contare i 304
    in `external_call` contro gli import in `job_run` dopo una settimana.
 9. **Perché il COMMIT di un import grande fallisce con `locking protocol`?**
-   Aperta il 2026-08-16 (voce sopra). Da misurare: succede anche con
+   Aperta il 2026-08-16 (voce sopra). **Ristretta il 2026-08-17:** lo screening
+   fa trenta transazioni da ~9 MB ciascuna, dallo stesso `cli.py` dentro lo
+   stesso container e con l'app che tiene la sua connessione aperta, e **non
+   fallisce**. Non è quindi «una transazione grande»: il sospetto si sposta sul
+   numero di pagine di indice che un import di `orbit` tocca. Da misurare: succede anche con
    `wal_autocheckpoint=0` nel processo di lavoro? Succede con il database su un
    volume Docker invece che sul bind mount? Succede se l'app non tiene una
    connessione aperta? Tre prove da mezz'ora che decidono fra tre soluzioni

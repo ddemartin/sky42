@@ -52,6 +52,12 @@ LOAD_LIMIT = float(os.environ.get("SKY42_LOAD_LIMIT", 1.0))
 # job guarda il carico e può fermarsi. Piccolo = più reattivo, più overhead.
 CHUNK_SIZE = int(os.environ.get("SKY42_CHUNK_SIZE", 20_000))
 
+# Oggetti per blocco nello **screening**, che è un'altra scala: 20.000 righe di
+# import sono testo, 20.000 orbite × 730 epoche sono ~490 MB di float64 fra
+# posizioni e velocità (misurato, MEMORANDUM 2026-08-16). A 500 per blocco la
+# griglia sta in ~18 MB e il job resta interrompibile ogni pochi secondi.
+SCREENING_BLOCK = int(os.environ.get("SKY42_SCREENING_BLOCK", 500))
+
 # --- Sorgenti dati ----------------------------------------------------------
 # La fonte è l'MPC; ASTORB è lo strato dell'incertezza. Vedi MEMORANDUM.
 

@@ -19,7 +19,7 @@ from core.visibility.instrument import Setup
 from core.visibility.night import night_date_for, night_events
 from core.visibility.site import Site
 from core.visibility.windows import STEP_MINUTES, night_grid, observation_window
-from services import ephemeris_service, sites_service
+from services import ephemeris_service, ranking_service, sites_service
 
 log = logging.getLogger("sky42.windows")
 
@@ -88,6 +88,13 @@ def tonight(desig: str, night_date: str | None = None,
                 })
     finally:
         conn.close()
+
+    # Il punteggio arriva **dopo** le finestre e non dentro: la finestra dice
+    # se e quanto si vede, il punteggio dice se vale la pena, e sono due
+    # domande con due tarature diverse. L'ordine resta quello del margine —
+    # «da dove lo prendo meglio» — perché su un oggetto solo il ranking serve a
+    # spiegare, non a scegliere.
+    ranking_service.score_windows(risultati, target)
 
     risultati.sort(key=lambda r: (-(r["useful"]), -(r.get("depth_margin") or -99)))
     return {

@@ -357,6 +357,13 @@ CREATE TABLE target_state (
     since           TEXT NOT NULL,
     v_pred          REAL,
     eff_vlim_ref    REAL,                       -- limite efficace di riferimento usato
+    -- Il candidato in attesa di conferma. Una transizione si scrive solo dopo
+    -- due calcoli consecutivi d'accordo: senza questa memoria, l'isteresi
+    -- difende dall'oggetto che oscilla sulla soglia ma non dal *calcolo* che
+    -- cambia idea quando arrivano elementi orbitali nuovi.
+    pending_state   TEXT,
+    pending_since   TEXT,
+    pending_count   INTEGER NOT NULL DEFAULT 0,
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (target_id, setup_id)
 );

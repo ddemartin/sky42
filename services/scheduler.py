@@ -60,7 +60,7 @@ def _jobs() -> list[JobSpec]:
     # Import qui e non in testa: il modulo viene caricato anche dai test, e
     # importare i servizi in testa creerebbe un ciclo con `jobs.py`.
     from services import (backup_service, ingest_service, maintenance_service,
-                          night_service)
+                          night_service, radar_service, screening_service)
 
     return [
         JobSpec("mpcorb_sync", "MPCORB extended", ingest_service.sync_mpcorb,
@@ -80,6 +80,22 @@ def _jobs() -> list[JobSpec]:
                 hours=6, minute=50, heavy=False, catchup_after_hours=12,
                 freshness=night_service.plan_age_hours,
                 description="crepuscoli e Luna per ogni sito attivo, due settimane avanti"),
+        # Lo screening gira **dopo** i sync della notte e prima che qualcuno si
+        # alzi: alle 02:10 UTC gli elementi sono quelli del giro delle 00:05 e
+        # il Mac mini non ha nient'altro da fare. Un giro al giorno e non due:
+        # le orbite cambiano una volta al giorno, e ricalcolare più spesso
+        # riscriverebbe le stesse tracce.
+        JobSpec("screening", "Screening", screening_service.run_screening,
+                cron={"hour": 2}, minute=10, catchup_after_hours=36,
+                freshness=screening_service.screening_age_hours,
+                description="propaga la popolazione monitorata, scrive tracce e statistiche"),
+        # Mezz'ora dopo, che è molto più di quanto lo screening impieghi: se
+        # per qualche motivo non ha finito, il radar legge le statistiche di
+        # ieri e lo dice il loro `computed_at`. Un job non ne chiama un altro.
+        JobSpec("radar_states", "Stati del radar", radar_service.run_radar,
+                cron={"hour": 2}, minute=40, heavy=False, catchup_after_hours=36,
+                freshness=radar_service.radar_age_hours,
+                description="stati e transizioni per (target × setup), con isteresi"),
         JobSpec("backup", "Backup dati non rigenerabili", backup_service.run_backup,
                 cron={"hour": 3}, minute=0, heavy=False,
                 description="candidati NEOCP, transizioni, osservazioni, watchlist"),

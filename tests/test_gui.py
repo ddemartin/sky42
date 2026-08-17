@@ -201,3 +201,50 @@ async def test_oggetto_mostra_le_finestre_di_stanotte(user: User, catalogo_minim
     await user.open("/oggetto?desig=1")
     await user.should_see("Stanotte")
     await user.should_see("RC700 + QHY600 bin2 L")
+
+
+@pytest.fixture()
+def sito_e_screening(catalogo_minimo, monkeypatch, tmp_path):
+    """Un sito attivo e uno screening già girato: il caso in cui c'è tutto."""
+    import textwrap
+
+    from core import config
+    from core.db import connect
+    from services import screening_service, sites_service
+    from tests.test_sites import SITO
+
+    siti = tmp_path / "sites"
+    siti.mkdir()
+    (siti / "cile.yml").write_text(textwrap.dedent(SITO), encoding="utf-8")
+    monkeypatch.setattr(config, "SITES_DIR", siti)
+    sites_service.run_reconcile()
+
+    # Cerere ha Tj > 3 e non è nella popolazione: ce la mette la watchlist,
+    # che è precisamente il motivo per cui la watchlist esiste.
+    conn = connect()
+    try:
+        conn.execute(
+            "INSERT INTO watchlist (target_id, added_at) "
+            "SELECT id, '2026-08-17T00:00:00Z' FROM target WHERE primary_desig='A801 AA'")
+    finally:
+        conn.close()
+    screening_service.run_screening()
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_oggetto_mostra_il_radar_e_il_punteggio(user: User, sito_e_screening):
+    """Le tre cose nuove di M1, sulla pagina: stato, finestra dei due anni, score."""
+    await user.open("/oggetto?desig=1")
+    await user.should_see("Radar")
+    await user.should_see("V adesso")
+    # Il punteggio non compare mai senza la sua scomposizione (regola 5).
+    await user.should_see("profilo default")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.oggetto")
+async def test_senza_screening_la_sezione_radar_non_compare(user: User, catalogo_minimo):
+    """Un oggetto fuori dalla popolazione monitorata non mostra una scheda vuota:
+    «nessun dato» per un milione e mezzo di righe è rumore, non informazione."""
+    await user.open("/oggetto?desig=1")
+    await user.should_see("Tj =")
+    await user.should_not_see("V adesso")

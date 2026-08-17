@@ -331,13 +331,26 @@ stabile, che non cambia con la fase lunare.
 | `FADING` | V ≤ V_ref ma oltre il picco (dV/dt > 0) |
 | `OUT_OF_RANGE` | V > V_ref + 1.5 |
 
-**Isteresi 0.15 mag** su ogni soglia e conferma su due calcoli consecutivi: un
-oggetto che oscilla attorno al limite non deve generare venti transizioni e
-venti notifiche. Ogni cambio scrive una riga in `state_transition` con la
+**Isteresi 0.15 mag** su ogni soglia e conferma su due calcoli consecutivi.
+Sono due difese contro rumori diversi: l'isteresi difende dall'**oggetto** che
+sta sulla soglia (le soglie si spostano rispetto allo stato attuale, quindi la
+banda morta è solo dalla parte da cui si uscirebbe); la conferma difende dal
+**calcolo** che cambia idea quando arrivano elementi orbitali nuovi. Il
+candidato in attesa vive in `target_state.pending_state/pending_count`. Il
+prezzo è la latenza: due giri per gradino. Ogni cambio scrive una riga in `state_transition` con la
 fotografia delle grandezze al momento.
 
+`CROSSES_LIMIT` è uno stato e non solo una riga di transizione, perché la
+dashboard deve poter chiedere «chi ha attraversato il limite oggi» con una
+query sola; sta nella banda di isteresi di `OBSERVABLE` e si assesta al giro
+dopo senza conferme e senza scrivere una seconda riga di transizione.
+`FADING` batte `PRIME`: un oggetto sotto il limite ma oltre il picco è FADING
+anche se brilla, perché la domanda è «conviene aspettare o è l'ultima
+occasione».
+
 `last_good_apparition` viene dalla propagazione all'indietro (15 anni, passo 10
-giorni): l'ultimo intervallo in cui V ≤ V_ref. Su quindici anni la posizione a
+giorni — a passo mensile un'apparizione di poche settimane sparirebbe fra due
+campioni): il minimo di V nell'ultimo intervallo in cui V ≤ V_ref. Su quindici anni la posizione a
 due corpi ha derivato parecchio, ma **la data di un'apparizione sbaglia di
 giorni, non di anni**, e il dato serve a dire «7.4 anni fa», non a puntare.
 `orbit.last_obs_date` resta il riscontro osservativo indipendente: se le due
@@ -378,6 +391,52 @@ classifiche che puniscono il plenilunio due volte.
 
 Mappa in giudizio: `PRIME ≥ 0.75`, `GOOD ≥ 0.55`, `POSSIBLE ≥ 0.35`,
 `POOR > 0`, `NOT_USEFUL` = fuori dai cancelli. Le soglie stanno nel profilo.
+
+**Saturazioni** (`core/ranking/features.py`, tutte in un posto solo): Tj ≤ 2.0 e
+Tj ≥ 3.0 agli estremi, 10 anni per rarità e ritorno, 30 giorni d'arco, 2 mag di
+margine, 4 h di finestra, X = 2.5. Senza saturazione un solo termine estremo
+decide la classifica da solo.
+
+**Una feature che non si può calcolare vale `None` e sparisce dalla media**, da
+numeratore e denominatore: un'iperbolica senza Tisserand non è un oggetto con
+Tisserand alto. Ne segue che oggetti diversi hanno denominatori diversi, ed è
+per questo che `score_json` porta sempre `weight_total`. La watchlist usa la
+stessa regola al contrario — `None` quando l'oggetto non c'è — così è un bonus
+vero e non una punizione per tutti gli altri.
+
+**Fuori dai cancelli `score` è `None`, non zero.** Zero è un punteggio e vuol
+dire «ultimo»; un ultimo posto si guarda comunque. `None` vuol dire «non
+pertinente stanotte», e `score_json.gates_failed` dice quale cancello.
+
+## 12. Distillazione dello screening
+
+Dalle serie temporali di V alle poche grandezze di `target_stats`:
+
+```
+v_now                 V al primo campione della griglia in avanti
+peak_v, peak_jd       minimo di V nei 24 mesi
+v_trend_mag_month     [V(t+30 g) − V(t)] / (30/30.44) mesi     negativo = migliora
+visibility_*          estremi del PRIMO tratto contiguo con V ≤ V_ref
+next_v21, next_v205   primo istante con V ≤ 21.0 e V ≤ 20.5
+last_good_apparition  minimo di V nell'ULTIMO tratto con V ≤ V_ref, all'indietro
+```
+
+Il trend è una **differenza a trenta giorni**, non una derivata: la derivata di
+V su un giorno è rumore di arrotondamento, trenta giorni sono l'orizzonte con
+cui si decide se aspettare. Il prezzo è che un picco *dentro* i trenta giorni
+non si vede nel trend — per quello c'è `peak_jd`.
+
+La finestra è la **prima** e non la più lunga, perché la domanda è «quand'è la
+prossima volta». Se il tratto arriva in fondo alla griglia, `visibility_end_jd`
+è l'ultimo campione: vuol dire «oltre non sappiamo», non «poi sparisce».
+
+`V_ref` per la distillazione è l'`eff_vlim` di riferimento del **setup attivo
+più profondo** — `target_stats` è per oggetto, non per setup. Cambiare hardware
+invalida le statistiche, che si rifanno da sole al giro successivo.
+
+Le magnitudini non calcolabili (fase estrapolata, fotometria mancante)
+diventano `+inf` prima di ogni confronto: «non si vede» è la risposta giusta, e
+nessun minimo va poi difeso caso per caso.
 
 ---
 

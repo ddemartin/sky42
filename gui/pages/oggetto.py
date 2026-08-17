@@ -24,7 +24,7 @@ from gui.layout import (
     table,
 )
 from services import ephemeris_service as eph
-from services import window_service
+from services import radar_service, window_service
 
 log = logging.getLogger("sky42.gui.oggetto")
 
@@ -82,7 +82,8 @@ def oggetto_page(desig: str = "", giorni: str = "30 giorni") -> None:
             disegna_suggerimenti(q)
             return
         stanotte = await run.io_bound(window_service.tonight, q)
-        _scheda(scheda, dati, stanotte)
+        radar = await run.io_bound(radar_service.object_summary, q)
+        _scheda(scheda, dati, stanotte, radar)
 
     def disegna() -> None:
         ui.timer(0, disegna_async, once=True)
@@ -94,7 +95,8 @@ def oggetto_page(desig: str = "", giorni: str = "30 giorni") -> None:
         disegna()
 
 
-def _scheda(contenitore, dati: dict, stanotte: dict | None = None) -> None:
+def _scheda(contenitore, dati: dict, stanotte: dict | None = None,
+            radar: dict | None = None) -> None:
     t = dati["target"]
     with contenitore:
         with ui.card().classes("w-full gap-2"):
@@ -131,6 +133,7 @@ def _scheda(contenitore, dati: dict, stanotte: dict | None = None) -> None:
                 ui.icon("warning").classes("text-amber-600")
                 ui.label(avviso).classes("text-sm opacity-80")
 
+        _radar(radar)
         _stanotte(stanotte)
 
         righe = dati["rows"]
@@ -182,6 +185,85 @@ def _ora(jd, timezone: str) -> str:
         ZoneInfo(timezone)).strftime("%H:%M")
 
 
+GRADO_COLORE = {"PRIME": "positive", "GOOD": "positive", "POSSIBLE": "info",
+                "POOR": "grey", "NOT_USEFUL": "grey"}
+
+STATO_COLORE = {"PRIME": "positive", "OBSERVABLE": "positive",
+                "CROSSES_LIMIT": "warning", "APPROACHING": "info",
+                "FADING": "grey", "OUT_OF_RANGE": "grey"}
+
+
+def _radar(radar: dict | None) -> None:
+    """Lo screening, per questo oggetto: dove sta, dove va, da quanto manca.
+
+    È la finestra dei due anni distillata in cinque numeri. Se l'oggetto non è
+    nella popolazione monitorata la sezione non compare: dire «nessun dato»
+    per un milione e mezzo di righe sarebbe rumore, non informazione.
+    """
+    if not radar:
+        return
+    s = radar["stats"]
+    rollup = next((r for r in radar["states"] if r["setup_id"] is None), None)
+
+    ui.label("Radar").classes("text-xl font-bold")
+    with ui.card().classes("w-full py-3 gap-1"):
+        with ui.row().classes("w-full items-center gap-3 flex-wrap"):
+            if rollup:
+                ui.badge(rollup["state"]).props(
+                    f"color={STATO_COLORE.get(rollup['state'], 'grey')}")
+                ui.label(f"dal {rollup['since'][:10]}").classes("text-xs opacity-60")
+                ui.label(f"limite di riferimento V {fmt_num(rollup['eff_vlim_ref'], 2)}") \
+                    .classes("text-xs opacity-60")
+            ui.space()
+            ui.label(f"calcolato {s['computed_at'][:16].replace('T', ' ')} UTC") \
+                .classes("text-xs opacity-60")
+
+        with ui.row().classes("gap-6 flex-wrap text-sm"):
+            ui.label(f"V adesso {fmt_num(s['v_now'], 1)}")
+            if s["v_trend_mag_month"] is not None:
+                verso = "più brillante" if s["v_trend_mag_month"] < 0 else "più debole"
+                ui.label(f"fra un mese {abs(s['v_trend_mag_month']):.2f} mag {verso}")
+            if s["peak_v"] is not None:
+                ui.label(f"picco V {fmt_num(s['peak_v'], 1)} il "
+                         f"{_giorno(s['peak_jd'])}").classes("text-primary")
+            if s["next_v21_jd"]:
+                ui.label(f"sotto V 21 dal {_giorno(s['next_v21_jd'])}")
+
+        with ui.row().classes("gap-6 flex-wrap text-sm opacity-90"):
+            if s["visibility_start_jd"]:
+                ui.label(f"finestra {_giorno(s['visibility_start_jd'])} → "
+                         f"{_giorno(s['visibility_end_jd'])}")
+            if s["years_since_good_apparition"] is not None:
+                ui.label(f"ultima buona apparizione {s['years_since_good_apparition']:.1f} "
+                         f"anni fa ({_giorno(s['last_good_apparition_jd'])})")
+            else:
+                ui.label("mai a portata nei 15 anni all'indietro").classes("opacity-70")
+            if s["years_since_last_obs"] is not None:
+                ui.label(f"non osservato da {s['years_since_last_obs']:.1f} anni")
+            if s["ceu_now_arcsec"] is not None:
+                ui.label(f"incertezza oggi ≈ {fmt_num(s['ceu_now_arcsec'], 1)}″")
+
+        if radar["history"]:
+            ui.label("transizioni: " + " · ".join(
+                f"{h['at'][:10]} {h['from_state']}→{h['to_state']}"
+                for h in radar["history"])).classes("text-xs opacity-60")
+
+    ui.label(
+        "Le due finestre e i limiti vengono dal ciclo di 24 mesi calcolato dallo "
+        "screening, con propagazione a due corpi: le date sono indicative al giorno, "
+        "non all'ora. Il limite di riferimento è quello del setup migliore a "
+        "X = 1.5, senza Luna — un metro stabile, non le condizioni di stanotte."
+    ).classes("text-xs opacity-60 -mt-2")
+
+
+def _giorno(jd) -> str:
+    if jd is None:
+        return "—"
+    from core.timeutil import date_from_jd, jd_utc_from_tdb
+
+    return date_from_jd(jd_utc_from_tdb(jd))
+
+
 def _stanotte(stanotte: dict | None) -> None:
     """Stanotte, da quale setup, e con quale margine.
 
@@ -208,6 +290,14 @@ def _stanotte(stanotte: dict | None) -> None:
                         .props("color=positive")
                 else:
                     ui.badge(w["motivo"]).props("color=grey")
+                if w.get("grade"):
+                    ui.badge(w["grade"] + ("" if w["score"] is None
+                                           else f" {w['score']:.2f}")) \
+                        .props(f"color={GRADO_COLORE.get(w['grade'], 'grey')} outline")
+
+            # Il punteggio sta **prima** dell'uscita per «non osservabile»: di
+            # una notte fallita interessa proprio quale cancello l'ha fermata.
+            _punteggio(w)
 
             if not w["observable"]:
                 continue
@@ -246,3 +336,29 @@ def _stanotte(stanotte: dict | None) -> None:
                              f"(traccia {w['trail_arcsec']:.1f}\")")
                 if w["needs_mosaic"]:
                     ui.badge("serve un mosaico").props("color=warning")
+
+
+def _punteggio(w: dict) -> None:
+    """Il punteggio con la sua scomposizione: senza, non si tara (regola 5).
+
+    I due gruppi restano separati anche qui, perché «alto perché mi interessa»
+    e «alto perché riesce bene» sono due risposte diverse alla stessa cifra.
+    """
+    j = w.get("score_json")
+    if not j:
+        return
+    with ui.row().classes("gap-6 flex-wrap text-sm opacity-90"):
+        if w["score"] is None:
+            ui.label("fuori dai cancelli: " + ", ".join(j["gates_failed"])) \
+                .classes("opacity-70")
+        else:
+            ui.label(f"punteggio {w['score']:.3f} → {w['grade']}").classes("font-bold")
+        for gruppo, etichetta in (("interest", "interesse"), ("feasibility", "fattibilità")):
+            if j.get(gruppo) is not None:
+                ui.label(f"{etichetta} {j[gruppo]:.2f}")
+        ui.label("profilo " + j["profile"]).classes("text-xs opacity-60")
+    contributi = sorted(j["contributions"].items(), key=lambda kv: -kv[1])[:4]
+    if contributi:
+        ui.label("pesa di più: " + ", ".join(
+            f"{k} {j['features'][k]:.2f}×{j['weights'][k]:g}" for k, _ in contributi)
+        ).classes("text-xs opacity-60")

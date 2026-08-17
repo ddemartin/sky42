@@ -93,6 +93,22 @@ def jd_from_yyyymmdd(s: str) -> float | None:
     return jd_from_ymd(int(s[:4]), int(s[4:6]), int(s[6:8]))
 
 
+def jd_from_iso_date(s: str | None) -> float | None:
+    """'2026-08-17' -> JD alle 0h. None su campo vuoto o malformato.
+
+    È il verso opposto di `iso_date_from_yyyymmdd`, e serve a rimettere nei
+    calcoli le date che nel database stanno come testo — la CEU di ASTORB, per
+    esempio, che va propagata a oggi.
+    """
+    if not s:
+        return None
+    try:
+        d = date.fromisoformat(str(s)[:10])
+    except ValueError:
+        return None
+    return jd_from_ymd(d.year, d.month, d.day)
+
+
 def iso_date_from_yyyymmdd(s: str) -> str | None:
     """'20260917' -> '2026-09-17'. None se il campo non è una data."""
     s = (s or "").strip()

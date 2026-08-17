@@ -125,6 +125,40 @@ def cmd_effemeride(args) -> None:
               f"{r['motion_arcsec_min']:>8.2f}")
 
 
+def cmd_screening(args) -> None:
+    from services import screening_service as scr
+
+    if args.solo_popolazione:
+        righe = scr.population(limit=args.limite)
+        v_ref, quale = scr.radar_reference_v()
+        print(f"popolazione monitorata: {len(righe):,} oggetti  "
+              f"V_ref {v_ref:.2f} ({quale or 'ripiego'})")
+        for r in righe[:20]:
+            print(f"  {r['display_name']:<34} {r['kind']:<9} "
+                  f"Tj={r['tisserand_j'] if r['tisserand_j'] is None else round(r['tisserand_j'], 3)}")
+        return
+
+    esito = scr.run_screening(limit=args.limite)
+    print(json.dumps(esito, indent=2, ensure_ascii=False))
+
+
+def cmd_radar(args) -> None:
+    from services import radar_service as rad
+
+    if not args.solo_lettura:
+        print(json.dumps(rad.run_radar(), indent=2, ensure_ascii=False))
+        print()
+
+    print("— stati (rollup migliore) —")
+    for r in rad.state_counts():
+        print(f"  {r['stato']:<16} {r['n']:>8,}")
+    print("\n— ultime transizioni —")
+    for t in rad.recent_transitions(limit=args.limite):
+        v = "—" if t["v_pred"] is None else f"V {t['v_pred']:.1f}"
+        print(f"  {t['at'][:16]}  {t['display_name']:<32} "
+              f"{t['from_state']} → {t['to_state']}  {v}")
+
+
 def main() -> None:
     setup_file_logging()
     init_db()
@@ -152,6 +186,19 @@ def main() -> None:
     pe.add_argument("--giorni", type=int, default=14)
     pe.add_argument("--passo", type=float, default=1.0, help="giorni fra due righe")
     pe.set_defaults(func=cmd_effemeride)
+
+    pc = sub.add_parser("screening", help="propaga la popolazione monitorata e la distilla")
+    pc.add_argument("--limite", type=int, default=None,
+                    help="ferma la popolazione ai primi N oggetti (per provare)")
+    pc.add_argument("--solo-popolazione", action="store_true", dest="solo_popolazione",
+                    help="mostra chi verrebbe propagato, senza propagare")
+    pc.set_defaults(func=cmd_screening)
+
+    pr = sub.add_parser("radar", help="ricalcola gli stati e mostra le transizioni")
+    pr.add_argument("--solo-lettura", action="store_true", dest="solo_lettura",
+                    help="mostra soltanto, senza ricalcolare")
+    pr.add_argument("--limite", type=int, default=20, help="quante transizioni mostrare")
+    pr.set_defaults(func=cmd_radar)
 
     args = p.parse_args()
     args.func(args)

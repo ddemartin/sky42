@@ -163,6 +163,57 @@ def _sky_mag(nl):
     return sky_magnitude(nl)
 
 
+# --- il metro stabile ------------------------------------------------------
+# Il radar ha bisogno di un limite che **non cambi con la Luna**: se la soglia
+# degli stati si muovesse con il cielo di stanotte, ogni plenilunio farebbe
+# uscire mezzo catalogo da OBSERVABLE e ogni novilunio lo farebbe rientrare —
+# venti transizioni al mese che non dicono niente sull'oggetto.
+# X = 1.5 è la condizione tipica di una posa buona: né allo zenit (che capita
+# di rado) né all'orizzonte. Vedi docs/modelli.md §10.
+REF_AIRMASS = 1.5
+
+
+def altitude_for_airmass(x_target: float) -> float:
+    """L'altezza a cui *la nostra* airmass vale `x_target`, in gradi.
+
+    Si inverte per bisezione la Kasten & Young di `geometry.airmass` invece di
+    usare `arccos(1/X)` della secante: la differenza a X = 1.5 è di due
+    centesimi di grado, ma così il riferimento è coerente con l'unica airmass
+    che il resto del codice conosce, e resta coerente se un domani la formula
+    cambia.
+    """
+    lo, hi = 0.0, 90.0                      # altezza: X decresce salendo
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if airmass(mid) > x_target:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def reference_limit(*, site: Site, setup: Setup, airmass_ref: float = REF_AIRMASS,
+                    motion_arcsec_min: float = 0.0) -> dict:
+    """`V_ref`: la profondità di quel setup in condizioni tipiche e ripetibili.
+
+    X = 1.5, niente Luna, niente crepuscolo, posa tipica. **Non è una
+    condizione reale**: è un metro. Le condizioni vere stanno in `eff_vlim`
+    della finestra, che è un altro numero e non va confuso con questo.
+
+    Restituisce il dizionario di `effective_limit` con valori scalari — la
+    scomposizione viaggia anche qui, perché «da dove viene il V_ref di questo
+    setup» è la prima domanda che si fa quando uno stato non torna (regola 5).
+    """
+    alt = altitude_for_airmass(airmass_ref)
+    out = effective_limit(
+        site=site, setup=setup, target_alt_deg=alt,
+        motion_arcsec_min=motion_arcsec_min,
+        exposure_s=setup.typical_exposure_s,
+        moon_alt_deg=None, moon_phase_deg=None, moon_sep_deg=None, sun_alt_deg=None,
+    )
+    return {**{k: float(v) for k, v in out.items()}, "alt_deg": alt}
+
+
 def required_exposure(v_mag, eff_vlim_at_ref, ref_exposure_s):
     """Quanto tempo serve per arrivare a `v_mag`, invertendo la scala in √t.
 
