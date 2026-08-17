@@ -45,6 +45,7 @@ class JobSpec:
     label: str
     func: Callable
     hours: int | None = None        # ogni N ore
+    minutes: int | None = None      # oppure ogni N minuti (i watcher)
     cron: dict | None = None        # oppure un orario fisso (UTC)
     minute: int = 0
     heavy: bool = True              # in un processo a parte
@@ -59,8 +60,9 @@ class JobSpec:
 def _jobs() -> list[JobSpec]:
     # Import qui e non in testa: il modulo viene caricato anche dai test, e
     # importare i servizi in testa creerebbe un ciclo con `jobs.py`.
-    from services import (backup_service, ingest_service, maintenance_service,
-                          night_service, radar_service, screening_service)
+    from services import (backup_service, candidate_service, ingest_service,
+                          maintenance_service, night_service, radar_service,
+                          screening_service)
 
     return [
         JobSpec("mpcorb_sync", "MPCORB extended", ingest_service.sync_mpcorb,
@@ -96,6 +98,17 @@ def _jobs() -> list[JobSpec]:
                 cron={"hour": 2}, minute=40, heavy=False, catchup_after_hours=36,
                 freshness=radar_service.radar_age_hours,
                 description="stati e transizioni per (target × setup), con isteresi"),
+        # I due watcher che **perdono dati se non girano**: l'MPC riscrive le
+        # liste e non conserva niente. Sono leggeri (10 kB per giro, con ETag) e
+        # non pesanti, così girano anche mentre lo screening macina.
+        JobSpec("neocp_poll", "Candidati NEOCP", candidate_service.poll_neocp,
+                minutes=10, heavy=False, catchup_after_hours=1,
+                freshness=lambda: candidate_service.poll_age_hours("NEOCP"),
+                description="la lista dei candidati NEO, e la sua storia che nessun altro tiene"),
+        JobSpec("pccp_poll", "Candidati cometari PCCP", candidate_service.poll_pccp,
+                minutes=20, heavy=False, catchup_after_hours=2,
+                freshness=lambda: candidate_service.poll_age_hours("PCCP"),
+                description="la lista dei candidati cometari"),
         JobSpec("backup", "Backup dati non rigenerabili", backup_service.run_backup,
                 cron={"hour": 3}, minute=0, heavy=False,
                 description="candidati NEOCP, transizioni, osservazioni, watchlist"),
@@ -166,6 +179,8 @@ class Scheduler:
 
     @staticmethod
     def _trigger(spec: JobSpec) -> tuple[str, dict]:
+        if spec.minutes:
+            return "cron", {"minute": f"*/{spec.minutes}"}
         if spec.hours:
             return "cron", {"hour": f"*/{spec.hours}", "minute": spec.minute}
         return "cron", {**(spec.cron or {}), "minute": spec.minute}
@@ -251,7 +266,9 @@ class Scheduler:
                 "label": spec.label,
                 "description": spec.description,
                 "enabled": self.is_enabled(name),
-                "cadenza": f"ogni {spec.hours} h" if spec.hours else _cron_label(spec),
+                "cadenza": (f"ogni {spec.minutes} min" if spec.minutes
+                            else f"ogni {spec.hours} h" if spec.hours
+                            else _cron_label(spec)),
                 "next_run": job.next_run_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 if job and job.next_run_time else None,
                 "last_start": prev.get("started_at"),

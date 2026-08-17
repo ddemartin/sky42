@@ -78,8 +78,10 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
 | riga di comando (`ingest`, `stato`, `siti`, `effemeride`, `screening`, `radar`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
+| popolazione monitorata configurabile | ✅ | regole dichiarative in `setting.screening_selectors`: Tj, H, q, classe, CEU, watchlist, liste a mano. Aggiungerne una non è una modifica al codice |
+| pagina Candidati | ✅ | `/candidati`: chi è in lista, chi sta per essere perso, chi è sparito |
 | recupero dopo un riavvio | ✅ | all'avvio guarda l'età dei dati, non l'orario mancato |
-| aggiornamento automatico dei cataloghi | ⚠️ | i job partono, ma il COMMIT fallisce con `locking protocol` sul bind mount di macOS (memorandum 16 ago, domanda aperta 9). Nel frattempo: `cli.py ingest` dentro il container |
+| aggiornamento automatico dei cataloghi | ⚠️ | il COMMIT di un import muore sul bind mount di macOS (`locking protocol`, e SIGBUS a servizio fermo): è la WAL di SQLite su virtiofs, diagnosi chiusa il 17 ago. Si risolve spostando il database in un volume Docker. Nel frattempo si importa **dall'host a servizio fermo** |
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
 | reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
@@ -102,9 +104,9 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | dashboard: Tonight / Coming into range / Tj < 3 | ⏳ M1 | NiceGUI, come stock42: nessuna catena di build |
 | trailing ed esposizione consigliata | ✅ | `n × t`, con la posa massima dettata da traccia e pixel |
 | incertezza posizionale vs campo, mosaico | ✅ | 3σ di CEU contro il lato corto del campo; CEU propagata a oggi in `target_stats.ceu_now_arcsec` |
-| watcher NEOCP | ⏳ M2 | **da anticipare se M1 si allunga**: la storia persa non si recupera |
-| watcher PCCP | ⏳ M2 | |
-| watcher MPEC e destino dei candidati | ⏳ M2 | da candidato a oggetto confermato, o a niente |
+| watcher NEOCP | ✅ | `neocp_poll` ogni 10 min: candidati, evoluzione, sparizioni. La storia che l'MPC non conserva |
+| watcher PCCP | ✅ | `pccp_poll` ogni 20 min, stesso formato e stessa storia |
+| watcher MPEC e destino dei candidati | ⏳ M2 | da candidato a oggetto confermato, o a niente. Finché non c'è, `resolution` resta NULL e la pagina lo dice |
 | comete: elementi MPC e radar dedicato | ⏳ M2 | ordinate per geometria, non per magnitudine |
 | verifica con Horizons sulla shortlist | ⏳ M2 | con budget giornaliero e cache; ogni chiamata a log |
 | validazione due corpi contro Horizons | ⏳ M2 | 50 oggetti/mese a 1, 6, 12, 24 mesi (domanda aperta 2) |
@@ -163,6 +165,7 @@ Il primo riempimento del catalogo (circa 280 MB da scaricare, 100 s di CPU):
 .venv/bin/python cli.py screening --solo-popolazione   # chi verrebbe propagato
 .venv/bin/python cli.py screening                      # 15.000 oggetti, ~20 s
 .venv/bin/python cli.py radar                          # stati e transizioni
+.venv/bin/python cli.py candidati                      # NEOCP e PCCP, e chi è sparito
 ```
 
 Test: `.venv/bin/python -m pytest` — girano su una cartella dati temporanea,
@@ -187,7 +190,22 @@ docker compose exec sky42 python cli.py stato
 docker compose exec sky42 python cli.py siti
 docker compose exec sky42 python cli.py screening
 docker compose exec sky42 python cli.py radar
+docker compose exec sky42 python cli.py candidati
 ```
+
+**Gli import dei cataloghi sono l'eccezione, e vanno fatti a servizio fermo dall'host:**
+
+```bash
+docker compose stop
+.venv/bin/python cli.py ingest all
+docker compose up -d
+```
+
+Il COMMIT di un import grande muore sul bind mount di macOS — `locking protocol`
+con il servizio acceso, SIGBUS con il servizio fermo, sempre sulla stessa riga.
+È la WAL di SQLite su virtiofs (memorandum del 17 agosto, domanda aperta 9), e
+si risolverà spostando il database in un volume Docker. Screening, radar e i
+watcher dei candidati girano invece bene dentro il container.
 
 Host e container che scrivono insieme sullo stesso file SQLite attraverso il
 bind mount è il modo documentato di corrompere un database: in WAL il
@@ -218,6 +236,8 @@ pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
 | `night_plan` | ogni 6 h | crepuscoli e Luna, due settimane avanti per sito |
 | `screening` | ogni giorno 02:10 UTC | propaga la popolazione monitorata, scrive tracce e `target_stats` |
 | `radar_states` | ogni giorno 02:40 UTC | stati e transizioni per (target × setup) |
+| `neocp_poll` | ogni 10 min | candidati NEOCP: nuovi, evoluzione, sparizioni |
+| `pccp_poll` | ogni 20 min | candidati cometari PCCP |
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
 
 Ogni 6 ore e non a un orario fisso perché le sorgenti pubblicano a orari che si

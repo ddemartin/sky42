@@ -129,13 +129,21 @@ def cmd_screening(args) -> None:
     from services import screening_service as scr
 
     if args.solo_popolazione:
-        righe = scr.population(limit=args.limite)
+        from core.radar import population as pop
+
+        righe, nomi = scr.population_rows(limit=args.limite)
         v_ref, quale = scr.radar_reference_v()
         print(f"popolazione monitorata: {len(righe):,} oggetti  "
               f"V_ref {v_ref:.2f} ({quale or 'ripiego'})")
+        print("\n— per regola —")
+        for i, n in enumerate(nomi):
+            print(f"  {n:<16} {sum(1 for r in righe if r[f'sel_{i}']):>8,}")
+        print()
         for r in righe[:20]:
+            tj = r["tisserand_j"]
             print(f"  {r['display_name']:<34} {r['kind']:<9} "
-                  f"Tj={r['tisserand_j'] if r['tisserand_j'] is None else round(r['tisserand_j'], 3)}")
+                  f"Tj={'—' if tj is None else round(tj, 3):<7} "
+                  f"[{', '.join(pop.why(r, nomi))}]")
         return
 
     esito = scr.run_screening(limit=args.limite)
@@ -157,6 +165,36 @@ def cmd_radar(args) -> None:
         v = "—" if t["v_pred"] is None else f"V {t['v_pred']:.1f}"
         print(f"  {t['at'][:16]}  {t['display_name']:<32} "
               f"{t['from_state']} → {t['to_state']}  {v}")
+
+
+def cmd_candidati(args) -> None:
+    from services import candidate_service as cand
+
+    if not args.solo_lettura:
+        for lista in (["NEOCP", "PCCP"] if args.lista == "tutte" else [args.lista]):
+            print(json.dumps(cand.poll(lista, force=args.force), indent=2,
+                             ensure_ascii=False))
+        print()
+
+    for lista, n in cand.counts().items():
+        if lista == "snapshot":
+            print(f"  snapshot in archivio: {n:,}")
+        else:
+            print(f"  {lista:<8} {n['aperti']:>4} aperti  "
+                  f"{n['visti']:>6} visti in tutto  {n['risolti']:>5} risolti")
+
+    print("\n— in lista adesso —")
+    for c in cand.open_candidates(limit=args.limite):
+        print(f"  {c['temp_desig']:<10} {c['list']:<6} score {c['score']:>5.0f}  "
+              f"V {c['v_mag']:>5.1f}  {c['n_obs']:>4} obs  "
+              f"arco {c['arc_hours'] / 24:>7.2f} g  "
+              f"non ripreso da {c['not_seen_days']:>6.2f} g")
+
+    spariti = cand.recent_departures()
+    if spariti:
+        print("\n— spariti di recente, destino ancora ignoto —")
+        for c in spariti:
+            print(f"  {c['temp_desig']:<10} {c['list']:<6} visto fino al {c['last_seen'][:16]}")
 
 
 def main() -> None:
@@ -199,6 +237,15 @@ def main() -> None:
                     help="mostra soltanto, senza ricalcolare")
     pr.add_argument("--limite", type=int, default=20, help="quante transizioni mostrare")
     pr.set_defaults(func=cmd_radar)
+
+    pk = sub.add_parser("candidati", help="polling NEOCP/PCCP e stato dei candidati")
+    pk.add_argument("--lista", choices=["tutte", "NEOCP", "PCCP"], default="tutte")
+    pk.add_argument("--force", action="store_true",
+                    help="scarica anche se la lista non è cambiata")
+    pk.add_argument("--solo-lettura", action="store_true", dest="solo_lettura",
+                    help="mostra soltanto, senza interrogare l'MPC")
+    pk.add_argument("--limite", type=int, default=20)
+    pk.set_defaults(func=cmd_candidati)
 
     args = p.parse_args()
     args.func(args)

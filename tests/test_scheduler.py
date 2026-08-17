@@ -36,11 +36,24 @@ def _iso_fa(giorni: int = 0, ore: int = 0, minuti: int = 0) -> str:
 def test_ogni_lavoro_ha_una_cadenza(db):
     """Un lavoro senza trigger non gira mai, e non se ne accorge nessuno."""
     for spec in _jobs():
-        assert spec.hours or spec.cron, f"{spec.name} non ha cadenza"
+        assert spec.minutes or spec.hours or spec.cron, f"{spec.name} non ha cadenza"
         assert spec.label and spec.description
         trigger, kwargs = Scheduler._trigger(spec)
         assert trigger == "cron"
         assert "minute" in kwargs
+
+
+def test_i_watcher_girano_a_minuti_e_sono_leggeri(db):
+    """I due watcher MPC sono l'unico lavoro che **perde dati** se non gira, e
+    devono poter girare mentre lo screening macina: quindi a minuti, e non nel
+    pool dei lavori pesanti, che ha un posto solo."""
+    watcher = {s.name: s for s in _jobs() if s.name.endswith("_poll")}
+    assert set(watcher) == {"neocp_poll", "pccp_poll"}
+    for spec in watcher.values():
+        assert spec.minutes and not spec.heavy
+        assert spec.catchup_after_hours is not None, "al riavvio si recupera subito"
+        _, kwargs = Scheduler._trigger(spec)
+        assert kwargs["minute"] == f"*/{spec.minutes}"
 
 
 def test_i_sync_sono_sfalsati(db):

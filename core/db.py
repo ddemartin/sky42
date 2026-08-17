@@ -16,7 +16,7 @@ from core.timeutil import now_iso
 log = logging.getLogger("sky42.db")
 
 # Versione dello schema. Si alza quando si aggiunge una migrazione a MIGRATIONS.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Migrazioni successive alla prima creazione: {versione: [istruzioni SQL]}.
 # Devono essere idempotenti e non distruttive.
@@ -29,6 +29,19 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE target_state ADD COLUMN pending_state TEXT",
         "ALTER TABLE target_state ADD COLUMN pending_since TEXT",
         "ALTER TABLE target_state ADD COLUMN pending_count INTEGER NOT NULL DEFAULT 0",
+    ],
+    # 3 — i candidati MPC: tre campi che le liste pubblicano e che lo schema
+    # non prevedeva (H, da quanto non lo riprende nessuno, data di scoperta), e
+    # la nota testuale dell'MPC. `target_stats.selectors` dice **perché** un
+    # oggetto è nella popolazione monitorata, ora che le regole sono più di una.
+    3: [
+        "ALTER TABLE mpc_candidate ADD COLUMN h_mag REAL",
+        "ALTER TABLE mpc_candidate ADD COLUMN not_seen_days REAL",
+        "ALTER TABLE mpc_candidate ADD COLUMN discovery_jd REAL",
+        "ALTER TABLE mpc_candidate ADD COLUMN mpc_note TEXT",
+        "ALTER TABLE mpc_candidate_snapshot ADD COLUMN h_mag REAL",
+        "ALTER TABLE mpc_candidate_snapshot ADD COLUMN not_seen_days REAL",
+        "ALTER TABLE target_stats ADD COLUMN selectors TEXT",
     ],
 }
 
@@ -91,11 +104,11 @@ def init_db() -> None:
                 for stmt in MIGRATIONS[version]:
                     _migrate(conn, stmt)
                 conn.execute(f"PRAGMA user_version={version}")
-        # Fuori dal ciclo delle migrazioni: è un dato di partenza, non una
-        # modifica di schema, e deve comparire anche nei database creati prima
-        # che il ranking esistesse. `INSERT OR IGNORE` sul nome, quindi un
-        # profilo modificato a mano non viene mai riscritto.
-        _seed_scoring_profile(conn)
+        # Fuori dal ciclo delle migrazioni: sono dati di partenza, non
+        # modifiche di schema, e devono comparire anche nei database creati
+        # prima che esistessero il ranking e le regole di popolazione. Tutto
+        # `INSERT OR IGNORE`: quello che l'utente ha già cambiato resta suo.
+        _seed(conn)
     finally:
         conn.close()
     close_orphaned_jobs()
@@ -161,11 +174,18 @@ def _seed(conn: sqlite3.Connection) -> None:
     """Valori iniziali. Da qui in poi si modificano dall'interfaccia, non nel codice."""
     import json
 
+    from core.radar.population import DEFAULT_SELECTORS
+
     settings = {
+        # Le due soglie storiche restano: le usa la **pagina Catalogo** per
+        # descrivere il catalogo, che è un'altra domanda da «chi monitoro».
         "tisserand_max": config.TISSERAND_MAX,
         "aco_excluded_classes": list(config.ACO_EXCLUDED_CLASSES),
         "screening_months_ahead": 24,
         "screening_years_back": 15,
+        # Chi si monitora. Regole dichiarative, accese e spente da qui senza
+        # toccare il codice: vedi core/radar/population.py.
+        "screening_selectors": DEFAULT_SELECTORS,
     }
     conn.executemany(
         "INSERT OR IGNORE INTO setting (key, value, updated_at) VALUES (?,?,?)",

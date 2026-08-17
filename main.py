@@ -37,6 +37,7 @@ import gui.pages.catalogo  # noqa: E402,F401
 import gui.pages.osservatori  # noqa: E402,F401
 import gui.pages.oggetto  # noqa: E402,F401
 import gui.pages.pianificatore  # noqa: E402,F401
+import gui.pages.candidati  # noqa: E402,F401
 import gui.health  # noqa: E402,F401  registra GET /health sul FastAPI di NiceGUI
 
 log = logging.getLogger("sky42.avvio")

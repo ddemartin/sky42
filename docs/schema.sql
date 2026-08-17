@@ -336,6 +336,10 @@ CREATE TABLE target_stats (
     years_since_good_apparition REAL,
     years_since_last_obs        REAL,           -- da orbit.last_obs_date
     ceu_now_arcsec              REAL,           -- CEU propagata a oggi
+    -- Perché questo oggetto è monitorato: i nomi delle regole di
+    -- `setting.screening_selectors` che l'hanno preso, separati da virgola.
+    -- Con una regola sola era ovvio; con sei è la prima domanda che ci si fa.
+    selectors                   TEXT,
     computed_at                 TEXT NOT NULL
 );
 
@@ -481,14 +485,25 @@ CREATE TABLE mpc_candidate (
     still_listed        INTEGER NOT NULL DEFAULT 1,
     -- ultimi valori noti; lo storico completo sta negli snapshot
     score               REAL,                   -- NEO score MPC
-    ra_deg              REAL,
+    ra_deg              REAL,                   -- gradi: l'MPC pubblica ore
     dec_deg             REAL,
     v_mag               REAL,
+    -- Moto e incertezza le liste **non** le danno: servirebbe una chiamata per
+    -- oggetto a confirmeph2.cgi. Restano NULL, e si vede che sono NULL.
     motion_arcmin_hr    REAL,
     motion_pa_deg       REAL,
     n_obs               INTEGER,
     arc_hours           REAL,
     unc_arcsec          REAL,
+    -- H stimata dall'MPC: cambia mentre l'arco cresce, ed è l'unico indizio di
+    -- dimensione che si ha su un oggetto senza orbita.
+    h_mag               REAL,
+    -- Da quanti giorni nessuno lo riprende. È il campo su cui si decide se
+    -- vale la pena stanotte: score alto e `not_seen` che cresce significa che
+    -- il candidato sta per essere perso.
+    not_seen_days       REAL,
+    discovery_jd        REAL,                   -- la scoperta secondo l'MPC
+    mpc_note            TEXT,                   -- 'Added Aug. 17.30 UT'
     updated_at          TEXT NOT NULL,
     -- il destino del candidato: è la parte che nessuno conserva e che serve
     resolution          TEXT CHECK (resolution IN (
@@ -510,6 +525,7 @@ CREATE TABLE mpc_candidate_snapshot (
     ra_deg REAL, dec_deg REAL, v_mag REAL,
     motion_arcmin_hr REAL, motion_pa_deg REAL,
     n_obs INTEGER, arc_hours REAL, score REAL, unc_arcsec REAL,
+    h_mag REAL, not_seen_days REAL,
     raw                 TEXT                    -- record originale, per rileggere dopo
 );
 

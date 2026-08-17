@@ -81,7 +81,7 @@ def _righe(sql, params=()):
 
 
 def test_la_popolazione_prende_gli_aco_e_la_watchlist(catalogo):
-    desig = {r["primary_desig"] for r in screening_service.population()}
+    desig = {r["primary_desig"] for r in screening_service.population_rows()[0]}
     # Il secondo ha Tj = 2.6: ci entra da solo. Il primo ha Tj = 4.5 e ci entra
     # perché qualcuno l'ha messo in watchlist — che è il motivo per cui la
     # watchlist sta nella query e non in un filtro a valle.
@@ -94,7 +94,7 @@ def test_le_classi_risonanti_restano_fuori(catalogo):
         conn.execute("UPDATE target SET orbit_class='Hilda' WHERE primary_desig='2010 TK7'")
     finally:
         conn.close()
-    desig = {r["primary_desig"] for r in screening_service.population()}
+    desig = {r["primary_desig"] for r in screening_service.population_rows()[0]}
     assert desig == {"3200"}, "un risonante stabile non è un oggetto che torna"
 
 

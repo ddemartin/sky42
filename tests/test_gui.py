@@ -248,3 +248,51 @@ async def test_senza_screening_la_sezione_radar_non_compare(user: User, catalogo
     await user.open("/oggetto?desig=1")
     await user.should_see("Tj =")
     await user.should_not_see("V adesso")
+
+
+@pytest.fixture()
+def candidati(db, tmp_path):
+    """Una lista NEOCP già letta, come dopo un giro del watcher."""
+    from services import candidate_service
+    from tests.test_neocp import NEOCP_TXT
+
+    f = tmp_path / "neocp.txt"
+    f.write_text(NEOCP_TXT, encoding="utf-8")
+    candidate_service.poll("NEOCP", local_path=f)
+    # Poi uno sparisce: la pagina deve mostrare anche quello.
+    f.write_text("\n".join(NEOCP_TXT.splitlines()[1:]) + "\n", encoding="utf-8")
+    candidate_service.poll("NEOCP", local_path=f)
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.candidati")
+async def test_candidati_mostra_lista_e_spariti(user: User, candidati):
+    """Il contenuto delle tabelle si legge da `.rows`: `should_see` confronta la
+    rappresentazione dell'elemento, che per una tabella è troncata."""
+    await user.open("/candidati")
+    await user.should_see("In lista adesso")
+    # Chi è sparito non sparisce anche dalla pagina: è la parte che l'MPC non
+    # conserva, ed è tutto il motivo per cui il watcher esiste.
+    await user.should_see("Spariti dalla lista")
+
+    # Le due tabelle si distinguono dalle colonne e non dall'ordine in cui
+    # `find` le restituisce, che non è garantito: solo quella dei candidati
+    # ancora in lista porta le coordinate, perché è l'unica che si punta.
+    tabelle = user.find(ui.table).elements
+    assert len(tabelle) == 2
+    per_colonne = {tuple(c["name"] for c in t.columns): list(t.rows) for t in tabelle}
+    in_lista = next(r for c, r in per_colonne.items() if "ra" in c)
+    spariti = next(r for c, r in per_colonne.items() if "ra" not in c)
+
+    assert len(in_lista) == 6 and len(spariti) == 1
+    assert spariti[0]["desig"] == "ST26H52", "il candidato tolto dalla lista"
+    aperto = [r for r in in_lista if r["desig"] == "ST26H50"][0]
+    assert aperto["lista"] == "NEOCP"
+    # La RA si mostra in ore, ma il database la tiene in gradi: 22.6102 h.
+    assert aperto["ra"].startswith("22h")
+    assert aperto["nonvisto"] == "0.82 g"
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.candidati")
+async def test_candidati_regge_il_database_vuoto(user: User, db):
+    await user.open("/candidati")
+    await user.should_see("Nessun candidato in lista")

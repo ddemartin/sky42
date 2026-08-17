@@ -4,15 +4,19 @@ Orchestra e basta — chi legge il catalogo, chi chiama il calcolo, chi scrive
 `screening_track` e `target_stats`. Le formule stanno in `core/radar/screening.py`
 e la propagazione in `core/orbits/`.
 
-**La popolazione monitorata** è tre cose messe insieme, e ognuna ha una ragione:
+**Chi si monitora non è deciso qui.** Le regole stanno in
+`setting.screening_selectors` e le compila `core/radar/population.py`: oggi
+sono asteroidi su orbita cometaria, comete e watchlist, ma non è una proprietà
+di questo file e non deve diventarlo. Aggiungere «i NEO più brillanti di V 22»
+o «tutto ciò che nessuno riprende da dieci anni» è una riga di configurazione.
+Ogni oggetto si porta dietro **quali** regole l'hanno preso, e finisce in
+`target_stats.selectors`.
 
-* gli asteroidi con **Tj < 3** tolte le classi risonanti stabili (Troiani,
-  Hilda, oggetti distanti): sono ~14.000 su 1,5 milioni, ed è la popolazione
-  del progetto — asteroidi su orbita cometaria;
-* **tutte le comete**, che sono poche migliaia e sono il caso in cui «torna a
-  portata» ha il significato più forte;
-* tutto ciò che sta in **watchlist**, perché un oggetto messo lì a mano deve
-  comparire nelle liste anche se non passa nessun filtro automatico.
+**La griglia è la stessa per tutti**, in un dato giro: stesso `jd_start`,
+stesso passo, stesso numero di campioni. Non è un dettaglio implementativo — è
+ciò che rende una ricerca di congiunzioni strette una query sulle tracce già
+scritte invece di una seconda propagazione. Chi tocca questo file non spezzi
+quell'invariante per un blocco.
 
 **Un job non ne chiama un altro.** Questo pubblica le tracce e le statistiche;
 `radar_states` le troverà lì al giro successivo.
@@ -26,7 +30,7 @@ import numpy as np
 from core import config
 from core.db import connect, get_setting, transaction
 from core.orbits.positioner import Body
-from core.radar import screening
+from core.radar import population, screening
 from core.timeutil import jd_from_iso_date, now_iso, now_jd_tdb, years_between
 from core.visibility.instrument import Setup
 from core.visibility.limits import reference_limit
@@ -42,37 +46,22 @@ JOB_NAME = "screening"
 # macchina appena installata — appena c'è un setup vero, vince quello.
 FALLBACK_V_REF = 21.0
 
-_POPULATION_SQL = """
-    SELECT t.id, t.kind, t.primary_desig, t.display_name, t.orbit_class,
-           o.epoch_jd, o.a_au, o.q_au, o.e, o.i_deg, o.node_deg, o.argp_deg,
-           o.m_deg, o.tp_jd, o.h_mag, o.g_slope, o.m1, o.k1,
-           o.tisserand_j, o.last_obs_date,
-           x.ceu_arcsec, x.ceu_rate, x.ceu_date
-    FROM target t
-    JOIN orbit o ON o.target_id = t.id
-    LEFT JOIN astorb_extra x ON x.target_id = t.id
-    WHERE (
-        (t.kind = 'asteroid' AND o.tisserand_j IS NOT NULL AND o.tisserand_j < ?
-         AND (t.orbit_class IS NULL OR t.orbit_class NOT IN ({escluse})))
-        OR t.kind = 'comet'
-        OR t.id IN (SELECT target_id FROM watchlist)
-    )
-    ORDER BY t.id
-"""
+
+def selectors() -> list[dict]:
+    """Le regole in vigore. Dal database, con quelle di partenza come ripiego."""
+    return get_setting("screening_selectors", population.DEFAULT_SELECTORS)
 
 
-def population(limit: int | None = None) -> list[dict]:
-    """Le righe target ⋈ orbit ⋈ astorb della popolazione monitorata."""
-    tj_max = get_setting("tisserand_max", config.TISSERAND_MAX)
-    escluse = get_setting("aco_excluded_classes", list(config.ACO_EXCLUDED_CLASSES))
-    sql = _POPULATION_SQL.format(escluse=",".join("?" * len(escluse)) or "''")
-    if limit:
-        sql += " LIMIT ?"
+def population_rows(limit: int | None = None) -> tuple[list[dict], list[str]]:
+    """Le righe target ⋈ orbit ⋈ astorb della popolazione, e i nomi delle regole.
 
+    Ogni riga porta le colonne `sel_0 … sel_n`: quale regola l'ha presa. Si
+    ricompongono in `_screen_block`, che le scrive in `target_stats.selectors`.
+    """
+    sql, params, nomi = population.population_query(selectors(), limit)
     conn = connect()
     try:
-        params = (tj_max, *escluse) + ((limit,) if limit else ())
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        return [dict(r) for r in conn.execute(sql, params).fetchall()], nomi
     finally:
         conn.close()
 
@@ -114,18 +103,21 @@ def run_screening(limit: int | None = None, block: int | None = None) -> dict:
     """
     with run_job(JOB_NAME) as ctx:
         v_ref, quale = radar_reference_v()
-        righe = population(limit)
+        righe, nomi = population_rows(limit)
         jd0 = now_jd_tdb()
         jd_avanti = screening.forward_grid(jd0)
         jd_indietro = screening.back_grid(jd0)
 
+        per_regola = {n: sum(1 for r in righe if r.get(f"sel_{i}"))
+                      for i, n in enumerate(nomi)}
         ctx.detail = {
             "v_ref": round(v_ref, 2), "setup_ref": quale,
-            "n_popolazione": len(righe),
+            "n_popolazione": len(righe), "regole": per_regola,
             "epoche_avanti": int(jd_avanti.size), "epoche_indietro": int(jd_indietro.size),
         }
-        log.info("screening: %d oggetti, V_ref %.2f da %s", len(righe), v_ref,
-                 quale or "(ripiego)")
+        log.info("screening: %d oggetti (%s), V_ref %.2f da %s", len(righe),
+                 ", ".join(f"{n}: {q}" for n, q in per_regola.items()),
+                 v_ref, quale or "(ripiego)")
 
         n_blocchi = 0
         for blocco in chunked(righe, block or config.SCREENING_BLOCK):
@@ -133,7 +125,7 @@ def run_screening(limit: int | None = None, block: int | None = None) -> dict:
             # e un job pesante deve poter aspettare senza lasciare il database
             # a metà.
             wait_if_busy()
-            _screen_block(blocco, jd_avanti, jd_indietro, v_ref, jd0)
+            _screen_block(blocco, jd_avanti, jd_indietro, v_ref, jd0, nomi)
             ctx.n_processed += len(blocco)
             n_blocchi += 1
             log.debug("screening: %d/%d", ctx.n_processed, len(righe))
@@ -143,7 +135,7 @@ def run_screening(limit: int | None = None, block: int | None = None) -> dict:
 
 
 def _screen_block(righe: list[dict], jd_avanti, jd_indietro, v_ref: float,
-                  jd0: float) -> None:
+                  jd0: float, nomi: list[str]) -> None:
     """Propaga un blocco, ne distilla le statistiche e le scrive in transazione."""
     body = Body.from_rows(righe)
     avanti = screening.track(body, jd_avanti)
@@ -173,6 +165,9 @@ def _screen_block(righe: list[dict], jd_avanti, jd_indietro, v_ref: float,
             riga.get("ceu_arcsec"), riga.get("ceu_rate"),
             jd_from_iso_date(riga.get("ceu_date")), jd0,
         )
+        # Perché questo oggetto è nella lista. Con una regola sola era ovvio;
+        # con sei diventa la prima domanda che si fa guardando la dashboard.
+        s["selectors"] = ",".join(population.why(riga, nomi))
         statistiche.append((riga["id"], *[s[c] for c in _STATS_COLS], ora))
 
     conn = connect()
@@ -198,7 +193,7 @@ _STATS_COLS = (
     "v_now", "v_trend_mag_month", "peak_v", "peak_jd",
     "next_v21_jd", "next_v205_jd", "visibility_start_jd", "visibility_end_jd",
     "last_good_apparition_jd", "years_since_good_apparition",
-    "years_since_last_obs", "ceu_now_arcsec",
+    "years_since_last_obs", "ceu_now_arcsec", "selectors",
 )
 
 

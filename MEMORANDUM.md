@@ -1819,6 +1819,221 @@ plausibili — il 4% della popolazione a portata in una notte qualsiasi — e so
 il primo dato con cui si potrà tarare qualcosa.
 ---
 
+## 2026-08-17 — chi si monitora è un dato, non una query
+
+La popolazione dello screening era scritta dentro `screening_service`: asteroidi
+con Tj < 3 tolte le famiglie risonanti, comete, watchlist. Sbagliato — non nei
+criteri, che restano quelli di partenza, ma nel *posto*. Il progetto non è «gli
+ACO»: è una console di follow-up, e la prossima curiosità (un NEO brillante, un
+oggetto che nessuno riprende da dieci anni, una lista fatta a mano per cercare
+congiunzioni strette) non deve costare una modifica al codice, un rebuild
+dell'immagine e un riavvio del servizio.
+
+Adesso le regole stanno in `setting.screening_selectors` e le compila
+`core/radar/population.py`. Ogni regola ha un nome; le condizioni dentro una
+regola sono in AND, le regole fra loro in OR.
+
+```json
+{"name": "trascurati", "enabled": false,
+ "not_observed_since_years": 10.0, "h_max": 19.0}
+```
+
+**Vocabolario chiuso, non SQL nella configurazione.** Le chiavi ammesse sono
+una tabella di predicati (`tisserand_max`, `h_max`, `q_max`, `ceu_min_arcsec`,
+`orbit_class_in`, `desig_in`, `watchlist`, `unnumbered`, …) e una chiave
+sconosciuta è un errore esplicito con il nome della regola. SQL nella
+configurazione sarebbe una superficie di iniezione e, peggio, un errore di
+sintassi da scoprire dentro un job alle due di notte. Una regola **senza**
+predicati viene rifiutata: prenderebbe un milione e mezzo di oggetti, ed è
+quasi sempre una chiave scritta male.
+
+**Ogni oggetto si porta dietro il perché** (`target_stats.selectors`, migrazione
+3). Con una regola sola era ovvio; con sei, «perché sto guardando questo sasso»
+è la prima domanda che si fa davanti alla dashboard. Costa una colonna di testo.
+
+Tre regole spente restano nel profilo di partenza come esempi funzionanti — e
+c'è un test che le compila tutte, comprese quelle spente: un esempio rotto è
+peggio di nessun esempio, perché si scopre il giorno in cui lo si accende.
+
+**Nota per le congiunzioni.** La griglia dello screening è la stessa per tutti
+gli oggetti di un giro: stesso `jd_start`, stesso passo, stesso numero di
+campioni. Non è un dettaglio implementativo, è ciò che rende una ricerca di
+congiunzioni strette una **query sulle tracce già scritte** invece di una
+seconda propagazione. Chi tocca `screening_service` non spezzi quell'invariante
+per un blocco.
+
+---
+
+## 2026-08-17 — NEOCP e PCCP: il testo batte il JSON, e i due non concordano
+
+Il watcher dei candidati era previsto per M2 ed è stato anticipato, per la
+ragione scritta il 15 agosto: l'MPC riscrive la lista e non conserva niente, e
+quella storia non si recupera a posteriori.
+
+**Quale formato.** NEOCP ha un JSON (`Extended_Files/neocp.json`), PCCP no:
+esiste solo la lista di testo. Il JSON sembrava la scelta ovvia — tipizzato,
+niente colonne da indovinare — finché i due prodotti non si sono contraddetti.
+Misurato il 2026-08-17, stesso istante, stesso oggetto:
+
+```
+testo:  RMM2026 ... 80 1821.94 18.9 16.878
+json:   {"Arc": 821.94, "H": 18.0, "NObs": 80, "Not_Seen_dys": 16.87}
+```
+
+Su 96 candidati è l'unico che diverge, ed è l'unico con l'arco sopra i cento
+giorni. Da fuori non si può sapere quale dei due sbagli; si può però scegliere
+di avere **un solo percorso di lettura**, e deve essere quello che funziona
+anche per PCCP. Anche il testo ha ETag e Last-Modified, quindi non si rinuncia
+al download condizionato. `parse_json` resta come controprova e come riserva
+per il giorno in cui il formato del testo cambierà: un servizio che gira da
+solo non deve restare cieco su NEOCP finché qualcuno aggiusta una regex.
+
+**Il testo non è a colonne fisse**, anche se lo sembra: 101 o 102 caratteri, e
+la colonna dell'arco trabocca proprio sugli oggetti in lista da mesi. Si àncora
+una regex alla coda numerica e si lascia libera la nota centrale, che è l'unico
+campo con spazi. Una riga che non corrisponde si registra e si salta: una lista
+con un record storto vale ancora.
+
+**Uno snapshot solo quando qualcosa cambia** — e la prima versione di questa
+regola non funzionava. Si confrontano i campi che contano (posizione, V, numero
+di osservazioni, arco, score, H) e si scrive solo se si sono mossi. Restano
+fuori dal confronto due campi, per la stessa ragione: sono **orologi, non
+osservazioni**. La nota testuale dell'MPC cambia a ogni rigenerazione della
+pagina anche a numeri fermi; e `not_seen_days` è «adesso meno l'ultima
+osservazione», quindi cresce da solo per definizione.
+
+Il secondo l'avevo lasciato dentro, e si è visto al primo giro vero: 103
+candidati, 206 istantanee in pochi minuti, e fra due letture consecutive
+cambiava **solo** quello (0.179 → 0.183). Sarebbero state 15.000 righe al
+giorno, cinque milioni l'anno: esattamente il rumore che quel confronto esiste
+per evitare. Il momento che conta non si perde comunque — quando
+`not_seen_days` si azzera davvero, è perché è arrivata un'osservazione, e
+allora cambia `n_obs`.
+
+**Una lista vuota non chiude niente.** Un 200 con zero righe è un guasto della
+sorgente molto più spesso di un cielo tranquillo, e chiudere novanta candidati
+insieme è irreversibile. Sotto la soglia si annota e non si tocca nulla.
+
+**Due giri nello stesso secondo.** La chiave è `(lista, designazione,
+first_seen)` e `first_seen` ha la risoluzione del secondo: un `cli.py` lanciato
+mentre parte il job collide. Non è teorico — l'ha trovato un test — e non è
+innocuo: la `IntegrityError` fa rotolare indietro **l'intera transazione**, cioè
+si perde il giro completo invece di una riga. Stesso secondo significa stessa
+comparsa, quindi si riapre quella riga.
+
+**V 99.9 non è una magnitudine**: è il modo dell'MPC di dire che non la conosce,
+e visto al primo giro vero (A11FAuF). Preso alla lettera sarebbe un oggetto
+inosservabile con qualunque telescopio, cioè un dato invece di un buco.
+
+Quello che le liste **non** danno: moto apparente, incertezza di posizione ed
+elementi orbitali. Servirebbe una chiamata per oggetto a `confirmeph2.cgi`, che
+è un'altra cosa e ha un altro costo. Le colonne restano NULL, visibilmente.
+
+Il **destino** dei candidati (designato, identificato, scartato) lo dirà il
+watcher MPEC. Finché non c'è, `resolution` resta NULL e la pagina mostra un
+elenco «spariti, destino ancora ignoto»: è il promemoria di quello che stiamo
+non sapendo, invece di far finta che quei candidati non siano esistiti.
+
+---
+
+## 2026-08-17 — ho cancellato il database di produzione, e la regola 1 ha retto
+
+Va scritto perché è la prova più costosa che il progetto abbia fatto finora.
+
+**Cosa è successo.** Uno script lanciato a mano dalla radice del progetto per
+capire un test che non passava:
+
+```python
+from core import config
+for suffix in ("", "-wal", "-shm"):
+    pathlib.Path(str(config.DB_PATH) + suffix).unlink(missing_ok=True)
+init_db()
+```
+
+Il ragionamento sbagliato: «`conftest.py` punta `SKY42_DATA_DIR` a una cartella
+temporanea». Vero **solo sotto pytest**. Lanciato a mano, `config.DB_PATH` era
+`data/sky42.db`, quello vero: 1,43 GB cancellati e ricreati vuoti. Lo stesso
+script ha poi scritto sette candidati di prova nel database vero.
+
+**Cosa si è perso: niente di irrecuperabile**, e non per fortuna. Il backup
+delle 03:00 di quella mattina dice che tutte e sei le tabelle non rigenerabili
+erano vuote (`mpc_candidate`, `mpc_candidate_snapshot`, `observation_log`,
+`setup_calibration`, `state_transition`, `watchlist`). Il resto — catalogo,
+tracce, statistiche, stati, notti — è rigenerabile *per costruzione*, e i file
+scaricati in `data/catalogs/` non erano stati toccati, quindi il ripristino non
+ha nemmeno richiesto di riscaricare 280 MB.
+
+**Il recupero all'avvio ha fatto quasi tutto da solo.** Riavviato il container,
+la sonda sull'*età dei dati* ha trovato «mai» e ha accodato i tre sync, il piano
+delle notti, lo screening e il radar. È la stessa logica scritta il 15 agosto
+per i riavvii del Mac mini, e ha funzionato su un caso molto peggiore di quello
+per cui era stata pensata.
+
+**Tre lezioni, in ordine di valore.**
+
+1. **La regola 1 non è una massima, è una proprietà verificabile** — e adesso è
+   stata verificata sul serio: cancellare il database costa minuti, non dati.
+   Il valore di quella regola non è mai stato così visibile.
+2. **`conftest.py` protegge i test, non la riga di comando.** Qualunque script
+   ad hoc lanciato dalla radice del progetto parla con il database vero. Non
+   esiste una rete di sicurezza, e non deve esistere l'illusione che ci sia.
+3. **Il backup vale anche quando è vuoto**: è stato lui a trasformare «forse ho
+   perso qualcosa» in «non ho perso niente», in trenta secondi e con certezza.
+
+---
+
+## 2026-08-17 — la domanda aperta 9 non è dei due scrittori: è del filesystem
+
+Il ripristino ha sbattuto contro il `locking protocol` e, cercando di aggirarlo,
+ha finito per **chiudere la diagnosi** che era aperta dal 16 agosto.
+
+Le prove, in ordine:
+
+| dove gira l'import | altra connessione aperta | esito |
+|---|---|---|
+| container, `cli.py` | sì (l'app) | `OperationalError: locking protocol` al COMMIT |
+| container, `docker compose run`, **servizio fermo** | **no** | **SIGBUS** al COMMIT |
+| container, servizio fermo, WAL appena checkpointata | no | SIGBUS al COMMIT |
+| **host**, `.venv`, servizio fermo | no | **1.557.104 oggetti in 108 s** |
+
+Con `-X faulthandler` il SIGBUS ha un indirizzo preciso:
+
+```
+Fatal Python error: Bus error
+Current thread (most recent call first):
+  File "/app/core/db.py", line 79 in transaction      <- conn.execute("COMMIT")
+```
+
+Cioè **la stessa riga** dell'errore di locking. Le due facce sono lo stesso
+guasto: la macchineria WAL di SQLite — il file di memoria condivisa `-shm`, che
+è mappato in memoria — su **virtiofs**, il filesystem con cui Docker Desktop
+espone il bind mount di macOS dentro la VM. A volte SQLite se ne accorge e
+alza `SQLITE_PROTOCOL`; a volte la mappatura salta e il processo muore di
+SIGBUS.
+
+**Quel che cade, dell'ipotesi precedente:** non è «due processi che scrivono»
+(un processo solo, a servizio fermo, fallisce identico) e non è «una
+transazione grande» (lo screening fa trenta COMMIT da ~9 MB e passa). Sembra
+piuttosto legato al **numero di pagine di indice** che un import di `orbit`
+tocca in un COMMIT, che è ciò che fa crescere la WAL oltre la soglia di
+auto-checkpoint proprio mentre `-shm` deve coordinarsi.
+
+**Ne segue la decisione, che è la strada 1 già scritta il 16 agosto:** il
+database va **fuori dal bind mount**, in un volume Docker (ext4 dentro la VM),
+lasciando su `data/` i file scaricati e i backup. È coerente con la regola 1 —
+il database *è* un indice rigenerabile, e non ha bisogno di stare su un disco
+che l'utente sfoglia — e toglie di mezzo l'unica classe di guasto che oggi
+richiede di fermare il servizio per aggiornare i cataloghi. Le strade 2
+(`wal_autocheckpoint=0`) e 3 (import nel processo dell'app) restano scartate:
+la prima è una scommessa su un meccanismo che qui è già rotto, la seconda
+rovescia una decisione presa per una ragione.
+
+**Fino ad allora, il percorso che funziona è uno solo e va scritto dove si
+vede:** `docker compose stop`, poi `.venv/bin/python cli.py ingest ...`
+dall'host (APFS, niente virtiofs), poi `docker compose up -d`. Screening, radar
+e watcher dei candidati invece girano bene dentro il container.
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -1869,7 +2084,10 @@ Si chiudono con numeri misurati, non con previsioni.
    un ritocco di 0.05. Resta aperto se quei 21.257 in più contengano qualcosa
    di interessante o solo coda della fascia principale: si risponde
    incrociandoli con la classe orbitale, come fatto per la soglia stretta.
-7. **Quante transizioni di stato al giorno?** Decide se le notifiche sono un
+7. **Quante transizioni di stato al giorno? E quanti candidati NEOCP?** Con il
+   watcher attivo dal 2026-08-17 arriva anche la seconda metà della domanda:
+   quanti candidati al giorno entrano ed escono, e quanti valgono una notte.
+   Primo dato: 96 in lista, 6 in PCCP. Decide se le notifiche sono un
    messaggio o un digest, e se l'isteresi a 0.15 mag è abbastanza. **Misurabile
    dal 2026-08-17:** il primo giro non produce transizioni per costruzione (uno
    stato iniziale non è un cambiamento), quindi la risposta arriva dal secondo
@@ -1881,17 +2099,14 @@ Si chiudono con numeri misurati, non con previsioni.
    conviene un import differenziale (`.add`/`.del`) invece di un rifacimento.
    Con i controlli ogni 6 ore la risposta arriva da sola: basta contare i 304
    in `external_call` contro gli import in `job_run` dopo una settimana.
-9. **Perché il COMMIT di un import grande fallisce con `locking protocol`?**
-   Aperta il 2026-08-16 (voce sopra). **Ristretta il 2026-08-17:** lo screening
-   fa trenta transazioni da ~9 MB ciascuna, dallo stesso `cli.py` dentro lo
-   stesso container e con l'app che tiene la sua connessione aperta, e **non
-   fallisce**. Non è quindi «una transazione grande»: il sospetto si sposta sul
-   numero di pagine di indice che un import di `orbit` tocca. Da misurare: succede anche con
-   `wal_autocheckpoint=0` nel processo di lavoro? Succede con il database su un
-   volume Docker invece che sul bind mount? Succede se l'app non tiene una
-   connessione aperta? Tre prove da mezz'ora che decidono fra tre soluzioni
-   molto diverse. Finché non è risolta, i cataloghi si aggiornano solo da
-   `cli.py ingest` dentro il container.
+9. **Il COMMIT di un import grande fallisce sul bind mount.** **Diagnosi
+   chiusa il 2026-08-17** (voce sopra): non sono i due scrittori e non è la
+   dimensione della transazione — un processo solo, a servizio fermo, muore di
+   **SIGBUS** sulla stessa riga (`conn.execute("COMMIT")`), mentre lo stesso
+   import dall'host su APFS passa in 108 s. È la WAL di SQLite su virtiofs.
+   Resta da **fare** la migrazione del database in un volume Docker, che è la
+   strada 1 già scritta il 16 agosto. Fino ad allora i cataloghi si aggiornano
+   a servizio fermo, dall'host.
 10. **Serve un guardiano per il container piantato?** `restart: unless-stopped`
    copre il processo che *muore*; **Docker non riavvia un container
    `unhealthy`**, quindi un processo che si pianta resta lì finché qualcuno

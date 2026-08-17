@@ -83,7 +83,9 @@ core/
 │                       l'unico modo di accorgersi che cambia è avere un solo
 │                       posto da guardare
 ├── ingest/cometels.py  le comete. q e Tp, mai a e M
-├── ingest/{neocp,pccp,mpec}.py     ⏳ M2
+├── ingest/neocp.py     ✅ NEOCP e PCCP. Il **testo**, non il JSON: i due
+│                       prodotti dell'MPC non concordano, e PCCP ha solo quello
+├── ingest/mpec.py      ⏳ M2, il destino dei candidati
 ├── orbits/elements.py  derivati e **Tisserand**. L'unico posto dove Tj si calcola
 ├── orbits/kepler.py    ✅ il solutore vettoriale: array di elementi × array di
 │                       epoche, nessun ciclo Python sugli oggetti
@@ -96,6 +98,8 @@ core/
 ├── ranking/            ✅ feature 0-1 in due gruppi (interesse, fattibilità),
 │                       pesi da `scoring_profile`. Una feature che non si può
 │                       calcolare è None e sparisce dalla media, non vale zero
+├── radar/population.py ✅ chi si monitora, da regole dichiarative in `setting`.
+│                       Vocabolario chiuso: mai SQL nella configurazione
 ├── radar/screening.py  ✅ le due griglie, i BLOB, la distillazione. Non tocca
 │                       il database: riceve `Body` e restituisce array
 ├── radar/states.py     ✅ la macchina a stati. Legge quel che lo screening ha
@@ -111,6 +115,8 @@ services/
 │                       quello si riscarica in 100 secondi
 ├── screening_service.py    la popolazione monitorata, i blocchi, le INSERT
 │                       di `screening_track` e `target_stats`
+├── candidate_service.py    il polling NEOCP/PCCP. **L'unico lavoro che perde
+│                       dati se non gira**: l'MPC riscrive le liste
 ├── radar_service.py    V_ref per setup, stati, transizioni. Nessun calcolo
 │                       di posizioni: se ne compare uno, sta nel posto sbagliato
 ├── ranking_service.py  il profilo attivo dal database e il contesto dell'oggetto
@@ -149,8 +155,8 @@ job, ogni job idempotente e con una riga in `job_run`.
 | `cometels_sync` | ogni 6 h, :35 | elementi cometari MPC |
 | `backup` | 03:00 UTC | le sei tabelle non rigenerabili |
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
-| `neocp_poll` | ⏳ M2, 10 min | lista NEOCP → candidati e snapshot |
-| `pccp_poll` | ⏳ M2, 20 min | lista PCCP |
+| `neocp_poll` | 10 min | lista NEOCP → candidati e snapshot |
+| `pccp_poll` | 20 min | lista PCCP |
 | `mpec_poll` | ⏳ M2, 30 min | circolari recenti, e il **destino** dei candidati |
 | `screening` | 02:10 UTC | propagazione 24 mesi avanti + 15 anni indietro, `target_stats` |
 | `radar_states` | 02:40 UTC | stati e transizioni per (target × setup), con isteresi |
@@ -189,6 +195,13 @@ cascata.
   sistema è il 3.9.
 - Test: `.venv/bin/python -m pytest`. Ogni test gira su una `data_dir`
   temporanea, mai su quella vera.
+- **`conftest.py` protegge i test, non la riga di comando.** Punta
+  `SKY42_DATA_DIR` a una cartella temporanea *solo sotto pytest*: qualunque
+  script ad hoc lanciato dalla radice del progetto — anche solo per capire
+  perché un test non passa — parla con `data/sky42.db`, quello vero. Il
+  2026-08-17 è costato la cancellazione del database di produzione. Per provare
+  qualcosa a mano si esporta `SKY42_DATA_DIR` a una cartella usa e getta, o si
+  scrive un test.
 - Lingua: identificatori di codice in inglese, commenti e interfaccia in
   italiano.
 - Percorsi: `pathlib` ovunque, mai percorsi assoluti nel codice — la radice dei
@@ -223,6 +236,14 @@ La riga di comando si esegue **dentro** il container
 insieme sullo stesso SQLite attraverso il bind mount è il modo documentato di
 corromperlo — in WAL il coordinamento fra scrittori passa da un file di memoria
 condivisa che non attraversa il confine della VM.
+
+**Con una sola eccezione, e va saputa: gli import dei cataloghi.** Il loro
+COMMIT muore sul bind mount — `locking protocol` a servizio acceso, **SIGBUS**
+a servizio fermo, sempre su `core/db.py:79` — perché la WAL di SQLite non regge
+virtiofs (memorandum 17 agosto). Finché il database non sarà in un volume
+Docker si fa `docker compose stop`, `.venv/bin/python cli.py ingest ...`
+dall'host, `docker compose up -d`. Screening, radar e watcher dei candidati
+girano bene dentro il container.
 
 Due cose che il `restart: unless-stopped` **non** copre, e vanno sapute:
 `docker compose kill` e `docker compose stop` contano come arresto voluto e non
@@ -272,6 +293,14 @@ core/ranking/               ✅ dieci feature 0-1 in due gruppi, pesi dal profil
 ```
 
 Sul catalogo vero: **14.899 oggetti monitorati, screening in 18 s, radar in 1 s**.
+
+Di **M2** è stato anticipato il pezzo che non si recupera a posteriori: il
+polling **NEOCP e PCCP** (`core/ingest/neocp.py`, `services/candidate_service.py`,
+pagina `/candidati`). Manca il watcher MPEC, cioè il *destino* dei candidati.
+
+E la popolazione monitorata non è più cablata: `core/radar/population.py`
+compila regole dichiarative da `setting.screening_selectors`. Tj < 3 è oggi la
+regola principale, non l'unica possibile — e aggiungerne una è una impostazione.
 
 Quel che resta di M1, nell'ordine:
 
