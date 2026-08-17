@@ -93,25 +93,51 @@ def fmt_dec_dms(deg) -> str:
     return f"{segno}{g:02d}° {m:02d}' {s:04.1f}\""
 
 
-def fmt_age(days) -> str:
-    """Età di un dato in forma leggibile. Un catalogo vecchio deve saltare all'occhio.
+def fmt_duration(days) -> str:
+    """Una durata, senza dire da che parte del presente sta: «30 min», «12 h».
 
     Sotto l'ora si scrivono i minuti: le sorgenti si aggiornano più volte al
     giorno e "adesso" per tutto ciò che è entro un'ora nasconde proprio la
     differenza che interessa dopo un aggiornamento.
+
+    Sta separata da `fmt_age` perché la stessa scala serve **anche al futuro**,
+    e le due direzioni hanno parole diverse: «fa» e «fra» non si compongono
+    dallo stesso pezzo di testo. Metterle insieme è già costato un «fra 13 min
+    fa» in pagina.
+    """
+    minutes = days * 1440
+    if minutes < 60:
+        return f"{minutes:.0f} min"
+    if days < 2:
+        return f"{days * 24:.0f} h"
+    if days < 60:
+        return f"{days:.0f} giorni"
+    return f"{days / 365.25:.1f} anni"
+
+
+def fmt_age(days) -> str:
+    """Quanto tempo fa. Un catalogo vecchio deve saltare all'occhio."""
+    if days is None:
+        return "mai"
+    if days * 1440 < 2:
+        return "adesso"
+    return f"{fmt_duration(days)} fa"
+
+
+def fmt_delay(days) -> str:
+    """Fra quanto. Il gemello di `fmt_age` per gli istanti che devono ancora venire.
+
+    Un ritardo — un lavoro che doveva partire e non è partito — non si scrive
+    come un tempo negativo: `fra -3 min` è un modo di dire «non lo so» che
+    sembra un dato. Si dice «in ritardo», che è quello che è.
     """
     if days is None:
         return "mai"
-    minutes = days * 1440
-    if minutes < 2:
-        return "adesso"
-    if minutes < 60:
-        return f"{minutes:.0f} min fa"
-    if days < 2:
-        return f"{days * 24:.0f} h fa"
-    if days < 60:
-        return f"{days:.0f} giorni fa"
-    return f"{days / 365.25:.1f} anni fa"
+    if days < 0 and days * 1440 < -2:
+        return f"in ritardo di {fmt_duration(-days)}"
+    if days * 1440 < 2:
+        return "a momenti"
+    return f"fra {fmt_duration(days)}"
 
 
 def age_color(days) -> str:

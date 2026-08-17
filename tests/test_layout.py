@@ -1,7 +1,7 @@
 """Formati dell'interfaccia. Piccoli, ma è quello che si legge."""
 from __future__ import annotations
 
-from gui.layout import age_color, fmt_age, fmt_int, fmt_num
+from gui.layout import age_color, fmt_age, fmt_delay, fmt_int, fmt_num
 
 
 def test_eta_leggibile():
@@ -12,6 +12,19 @@ def test_eta_leggibile():
     assert fmt_age(0.5) == "12 h fa"
     assert fmt_age(9.0) == "9 giorni fa"
     assert fmt_age(400.0) == "1.1 anni fa"
+
+
+def test_il_futuro_ha_parole_sue():
+    """«fra 13 min fa» è stato in pagina: le due direzioni non si compongono
+    dallo stesso pezzo di testo."""
+    assert fmt_delay(None) == "mai"
+    assert fmt_delay(0.0005) == "a momenti"          # 43 secondi
+    assert fmt_delay(0.0208) == "fra 30 min"
+    assert fmt_delay(0.5) == "fra 12 h"
+    assert fmt_delay(9.0) == "fra 9 giorni"
+    # Un lavoro che doveva partire e non è partito non si scrive «fra -3 min».
+    assert fmt_delay(-0.0208) == "in ritardo di 30 min"
+    assert "fa" not in fmt_delay(0.5) and "fra" not in fmt_age(0.5)
 
 
 def test_colore_segue_la_freschezza():

@@ -11,7 +11,7 @@ import logging
 
 from nicegui import run, ui
 
-from gui.layout import fmt_age, fmt_int, fmt_num, header
+from gui.layout import fmt_age, fmt_delay, fmt_int, fmt_num, header
 from services import backup_service
 from services.scheduler import scheduler
 from core.timeutil import days_since
@@ -71,7 +71,7 @@ def pianificatore_page() -> None:
                         with ui.column().classes("gap-0 min-w-40"):
                             ui.label(j["cadenza"]).classes("text-sm")
                             ui.label(
-                                f"prossimo: fra {fmt_age(_days_to(j['next_run']))}"
+                                f"prossimo: {fmt_delay(_days_to(j['next_run']))}"
                                 if j["next_run"] else "in pausa"
                             ).classes("text-xs opacity-70")
 
