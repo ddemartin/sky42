@@ -562,19 +562,81 @@ CREATE TABLE watchlist (
     added_at    TEXT NOT NULL
 );
 
+-- Il **proposito osservativo**: «questo lo voglio riprendere».
+--
+-- Nasce da un suggerimento (la dashboard, il radar, la pagina di un oggetto) e
+-- vive finché non succede una di tre cose: lo si osserva, lo si lascia perdere,
+-- oppure **l'occasione passa** — l'oggetto scende sotto il limite o non ha più
+-- una finestra utile dal setup scelto. Quei due fallimenti sono diversi e si
+-- registrano diversi (`closed_reason`): «era troppo debole» e «da lì non si
+-- vedeva più» si tarano in due modi opposti.
+--
+-- Non rigenerabile: è una decisione dell'utente, non un dato scaricato.
+CREATE TABLE observing_intent (
+    id              INTEGER PRIMARY KEY,
+    -- La chiave naturale è la **designazione**, non l'id. `target` è
+    -- rigenerabile (regola 1): un ripristino da backup su un catalogo
+    -- riscaricato sposterebbe i propositi da un oggetto all'altro, che è lo
+    -- stesso motivo per cui l'hardware ha `code`. `target_id` è la comodità
+    -- per le join e si riaggancia da `desig` a ogni giro.
+    desig           TEXT NOT NULL,
+    target_id       INTEGER REFERENCES target(id) ON DELETE SET NULL,
+    setup_id        INTEGER REFERENCES setup(id),   -- NULL = da qualunque setup
+    created_at      TEXT NOT NULL,
+    created_from    TEXT,                       -- 'stanotte','oggetto','manuale'
+    purpose         TEXT,                       -- astrometria, attività cometaria, ...
+    priority        INTEGER NOT NULL DEFAULT 0,
+    deadline        TEXT,                       -- scadenza scelta a mano, opzionale
+    status          TEXT NOT NULL DEFAULT 'planned' CHECK (status IN (
+                        'planned','observed','expired','dropped')),
+    status_at       TEXT NOT NULL,
+    closed_reason   TEXT CHECK (closed_reason IN (
+                        'out_of_range','no_window','deadline','observed','manuale')),
+    -- La fotografia del **perché** al momento in cui si è deciso: stato del
+    -- radar, V prevista, punteggio, finestra di quella notte. Fra sei mesi,
+    -- guardando un proposito scaduto, «cosa mi aveva convinto» deve avere una
+    -- risposta — e le statistiche di allora saranno state riscritte.
+    context_json    TEXT,
+    note            TEXT
+);
+
+CREATE INDEX idx_intent_status ON observing_intent(status, created_at DESC);
+CREATE INDEX idx_intent_desig  ON observing_intent(desig);
+
 CREATE TABLE observation_log (
     id              INTEGER PRIMARY KEY,
     target_id       INTEGER NOT NULL REFERENCES target(id) ON DELETE CASCADE,
+    -- Come per i propositi: la designazione è la chiave che sopravvive a un
+    -- catalogo riscaricato.
+    desig           TEXT,
+    intent_id       INTEGER REFERENCES observing_intent(id) ON DELETE SET NULL,
     setup_id        INTEGER REFERENCES setup(id),   -- niente CASCADE: la storia resta
     obs_start       TEXT NOT NULL,
-    exposure_s      REAL,
+    obs_end         TEXT,
+    exposure_s      REAL,                       -- la singola posa
     n_frames        INTEGER,
+    total_exposure_s REAL,
+    tracking_mode   TEXT,                       -- 'sidereal', 'object rate', ...
+    purpose         TEXT,
     outcome         TEXT,                       -- 'detected','not_detected','clouded',...
     measured_mag    REAL,
+    -- Quel che si sa **dopo** aver guardato le immagini. `limiting_mag` è il
+    -- numero che chiude la domanda aperta 5: il `vlim_ref` dichiarato contro
+    -- quello misurato davvero, notte per notte.
+    fwhm_arcsec     REAL,
+    snr_median      REAL,
+    limiting_mag    REAL,
+    residual_arcsec REAL,                       -- residui medi dell'astrometria
+    processed       INTEGER NOT NULL DEFAULT 0,
+    reported_mpc    TEXT,                       -- 'yes','no','na'
+    reported_cobs   TEXT,
+    archive_folder  TEXT,                       -- dove stanno le immagini
+    cost            REAL,                       -- tempo di telescopio, se si paga
     note            TEXT
 );
 
 CREATE INDEX idx_obslog_target ON observation_log(target_id, obs_start DESC);
+CREATE INDEX idx_obslog_intent ON observation_log(intent_id);
 
 -- ---------------------------------------------------------------------------
 -- 8. Configurazione e operations

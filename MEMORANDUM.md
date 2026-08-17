@@ -2343,6 +2343,89 @@ prima risponde già.
 
 ---
 
+## 2026-08-17 (sera) — i propositi osservativi: il lato dell'utente della console
+
+Fin qui sky42 sapeva **suggerire** e non sapeva niente di cosa l'osservatore
+decidesse di farne. Un suggerimento che nessuno registra si ripete uguale il
+giorno dopo, e un'occasione persa non lascia niente da cui imparare. Adesso
+c'è `observing_intent`, la sesta tabella non rigenerabile: una decisione
+dell'utente, non un dato scaricato, e quindi nel backup.
+
+**La chiave naturale è la designazione, non l'id.** `target` è rigenerabile
+(regola 1): un ripristino da backup su un catalogo riscaricato sposterebbe i
+propositi da un oggetto all'altro — lo stesso identico motivo per cui
+l'hardware ha `code` e non l'id autoincrementale. `target_id` resta come
+comodità per le join e si riaggancia da `desig` a ogni giro, come i candidati
+risolti. La stessa colonna è stata aggiunta a `observation_log`, dove mancava.
+
+**Due motivi di scadenza, e restano distinti.** `out_of_range` dice «bisognava
+muoversi prima», `no_window` dice «serviva un altro sito»: fonderli in un unico
+«scaduto» cancellerebbe proprio l'informazione con cui si decide se comprare
+tempo di telescopio da qualche altra parte. Con due guardie che i dati veri
+hanno imposto:
+
+* «non l'ho calcolato» non è «non si vede». Se non esiste **nessuna** finestra
+  per quel setup, `no_window` non si applica: senza questa guardia il primo
+  avvio scadrebbe tutti i propositi insieme.
+* un proposito non agganciato al catalogo non scade: non si sa niente di lui, e
+  «non lo so» non è un motivo per chiudere.
+
+### `FADING` non vuol dire «è andata»: vuol dire «sbrigati»
+
+La prima versione chiudeva tutto ciò che non era in `states.IN_RANGE`. Sembra
+ovvio e invece è sbagliato, e il servizio vero l'ha detto al primo giro:
+**C/2019 E3 (ATLAS)** — primo della classifica di stanotte, PRIME 0.881, 7,6 ore
+utili, **V 18.33 contro un limite di 21.06**, cioè 2,7 magnitudini di margine —
+è stato dichiarato scaduto perché il suo trend è +0.035 mag/mese, cioè ha
+passato il picco.
+
+Dei tre stati fuori da `IN_RANGE`, **due dicono l'opposto di «è andata»**:
+`APPROACHING` è «sta arrivando» e `FADING` è «ultima occasione» — che
+`states.py` scriveva già, nero su bianco, dal giorno in cui è nato («la domanda
+del radar è *conviene aspettare o è l'ultima occasione*»). Adesso chiude solo
+`OUT_OF_RANGE`, che è il verdetto vero del radar, con la sua isteresi e la sua
+conferma su due giri; e `FADING` diventa un badge **«ultima occasione»** in
+pagina, perché è quello da fare per primo. Il proposito chiuso per sbaglio è
+stato riaperto, non cancellato.
+
+La lezione, che vale oltre questo caso: `IN_RANGE` è un insieme comodo per
+contare, non un predicato su cui prendere decisioni. Il suo complemento non è
+«fuori portata», è «tre cose diverse».
+
+### Le sessioni, e le colonne che vengono da tre anni di foglio
+
+`observation_log` aveva otto colonne, progettate a tavolino. Il registro che
+l'osservatore tiene davvero — 990 righe su Google Sheets, dal 2022 — ne aveva
+trentadue, e la differenza non è verbosità: sono le cose che si scoprono solo
+tenendo un registro per tre anni. Ne sono entrate quindici, scelte per quello
+che *decidono*:
+
+* **cartella d'archivio**, scopo, modo di inseguimento: senza, fra un anno non
+  si ritrova l'immagine né si sa perché era stata presa;
+* **elaborata / riportata a MPC / riportata a COBS**: il ciclo non finisce con
+  lo scatto, e «cosa mi manca da elaborare» è una domanda che si fa ogni
+  settimana;
+* **FWHM, SNR mediano, magnitudine limite raggiunta, residui astrometrici**:
+  sono misure, e la terza è il numero che chiude la **domanda aperta 5** —
+  `vlim_ref` dichiarato contro `vlim_ref` misurato, notte per notte, sullo
+  stesso setup. Finora quella taratura non aveva una fonte di dati; adesso ce
+  l'ha, e si riempie da sé osservando;
+* **costo**: il tempo di telescopio remoto si paga, e un ranking che ignora il
+  costo consiglia sempre lo strumento più grande.
+
+Restano fuori le **misure singole** (le 3.062 righe ADES del foglio) e le
+ricevute dell'MPC: sono un'altra scala e un'altra tabella, e verranno quando
+questa struttura avrà dimostrato di reggere. Lo schema le aspetta: una sessione
+ha già un id a cui una misura potrà puntare.
+
+Una sessione si può registrare **anche senza proposito** — capita di riprendere
+qualcosa perché era lì, e un registro che accetta solo il pianificato racconta
+una notte più ordinata di com'è stata — e se un proposito aperto c'è, si
+aggancia da sé: nessuno vuole scegliere da un elenco la cosa che ha appena
+deciso di fare.
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
@@ -2376,7 +2459,11 @@ Si chiudono con numeri misurati, non con previsioni.
    Serve anche decidere *come* si misura: la magnitudine limite raggiunta in
    pose di crepuscolo contro quelle di notte piena, sullo stesso campo e con la
    stessa posa, è la strada più corta.
-5. **`vlim_ref` dichiarato contro misurato.** **Aggravata di nuovo il
+5. **`vlim_ref` dichiarato contro misurato.** **Adesso ha una fonte di dati
+   (2026-08-17 sera):** `observation_log.limiting_mag` registra la magnitudine
+   limite *raggiunta* in ogni sessione, sullo stesso setup e con la sua posa.
+   Non è ancora una risposta — servono le notti — ma la domanda ha smesso di
+   essere senza numeri per costruzione. **Aggravata di nuovo il
    2026-08-17:** adesso ci si appoggia anche `V_ref`, cioè la soglia di *tutti*
    gli stati del radar e la soglia con cui lo screening distilla
    `visibility_start_jd` e `last_good_apparition_jd`. Mezza magnitudine di

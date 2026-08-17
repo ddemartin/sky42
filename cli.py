@@ -189,6 +189,47 @@ def cmd_finestre(args) -> None:
     print(json.dumps(esito, indent=2, ensure_ascii=False))
 
 
+def cmd_programma(args) -> None:
+    from services import intent_service as prop
+
+    if args.osserva:
+        p = prop.add(args.osserva, setup_code=args.setup, purpose=args.scopo,
+                     source="cli")
+        if p is None:
+            raise SystemExit(f"«{args.osserva}» non è in catalogo")
+        print(f"in programma: {p['desig']}"
+              + (f" con {args.setup}" if args.setup else "") + f"  (id {p['id']})")
+        return
+
+    if args.aggiorna:
+        print(json.dumps(prop.refresh(), indent=2, ensure_ascii=False))
+        print()
+
+    n = prop.counts()
+    print("— programma —")
+    for stato, quanti in n["per_stato"].items():
+        print(f"  {stato:<10} {quanti:>4}")
+    print(f"  sessioni   {n['sessioni']:>4}  ({n['riportate']} riportate all'MPC)")
+
+    aperti = prop.list_intents("planned")
+    if aperti:
+        print("\n— in programma —")
+        for r in aperti:
+            t = r["tonight"]
+            finestra = ("—" if not t or not (t["useful_hours"] or 0) > 0
+                        else f"{t['useful_hours']:.1f} h il {t['night_date']}")
+            print(f"  {(r['display_name'] or r['desig']):<32} "
+                  f"{(r['setup_code'] or 'qualunque'):<26} "
+                  f"adesso {(r['state'] or '—'):<13} finestra {finestra}")
+
+    chiusi = prop.list_intents(chiusi=True, limit=args.limite)
+    if chiusi:
+        print("\n— come sono andati —")
+        for r in chiusi:
+            print(f"  {(r['display_name'] or r['desig']):<32} {r['status']:<10} "
+                  f"{r['closed_reason'] or '':<14} chiuso il {(r['status_at'] or '')[:10]}")
+
+
 def cmd_candidati(args) -> None:
     from services import candidate_service as cand
 
@@ -279,6 +320,15 @@ def main() -> None:
     pf.add_argument("--limite", type=int, default=None,
                     help="ferma la popolazione ai primi N oggetti (per provare)")
     pf.set_defaults(func=cmd_finestre)
+
+    pp = sub.add_parser("programma", help="propositi osservativi e sessioni")
+    pp.add_argument("--osserva", help="metti in programma questa designazione")
+    pp.add_argument("--setup", help="da quale setup (default: qualunque)")
+    pp.add_argument("--scopo", help="perché lo si osserva")
+    pp.add_argument("--aggiorna", action="store_true",
+                    help="richiudi i propositi la cui occasione è passata")
+    pp.add_argument("--limite", type=int, default=20)
+    pp.set_defaults(func=cmd_programma)
 
     pk = sub.add_parser("candidati", help="polling NEOCP/PCCP e stato dei candidati")
     pk.add_argument("--lista", choices=["tutte", "NEOCP", "PCCP"], default="tutte")

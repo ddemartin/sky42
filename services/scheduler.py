@@ -61,8 +61,8 @@ def _jobs() -> list[JobSpec]:
     # Import qui e non in testa: il modulo viene caricato anche dai test, e
     # importare i servizi in testa creerebbe un ciclo con `jobs.py`.
     from services import (backup_service, candidate_service, ingest_service,
-                          maintenance_service, night_service, radar_service,
-                          screening_service, window_service)
+                          intent_service, maintenance_service, night_service,
+                          radar_service, screening_service, window_service)
 
     return [
         JobSpec("mpcorb_sync", "MPCORB extended", ingest_service.sync_mpcorb,
@@ -107,6 +107,13 @@ def _jobs() -> list[JobSpec]:
                 cron={"hour": 2}, minute=40, heavy=False, catchup_after_hours=36,
                 freshness=radar_service.radar_age_hours,
                 description="stati e transizioni per (target × setup), con isteresi"),
+        # Dopo il radar, che è quello che decide se un oggetto è ancora a
+        # portata: i propositi leggono il suo verdetto e quello delle finestre,
+        # e non ricalcolano niente. Un job non ne chiama un altro — questo
+        # trova quel che gli altri due hanno pubblicato.
+        JobSpec("intents_refresh", "Propositi osservativi", intent_service.refresh,
+                cron={"hour": 2}, minute=50, heavy=False, catchup_after_hours=36,
+                description="chiude i propositi la cui occasione è passata, con il motivo"),
         # I due watcher che **perdono dati se non girano**: l'MPC riscrive le
         # liste e non conserva niente. Sono leggeri (10 kB per giro, con ETag) e
         # non pesanti, così girano anche mentre lo screening macina.

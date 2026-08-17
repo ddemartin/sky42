@@ -104,6 +104,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | confronto automatico dei siti | ✅ | `BEST SITE TONIGHT` in `/stanotte`, e il confronto per oggetto dentro la riga — compresi i setup da cui **non** si vede. `BEST SITE NOW` resta di M2 |
 | ranking a pesi trasparenti | ✅ | `core/ranking/`: dieci feature 0-1 in due gruppi, pesi da `scoring_profile`, `score_json` sempre accanto allo score |
 | dashboard: Tonight / Coming into range / Tj < 3 | ✅ | `/stanotte`: tre sezioni per tre orizzonti (stanotte, le settimane, gli anni). È una query, non un calcolo, e ha il suo gemello JSON in `/api/stanotte` |
+| propositi osservativi e sessioni | ✅ | `/programma`: dal suggerimento alla decisione, e il registro di cosa si è ripreso. Un proposito scade da solo quando l'occasione passa, **con il motivo**: sceso sotto il limite, o niente finestra da quel sito |
 | trailing ed esposizione consigliata | ✅ | `n × t`, con la posa massima dettata da traccia e pixel |
 | incertezza posizionale vs campo, mosaico | ✅ | 3σ di CEU contro il lato corto del campo; CEU propagata a oggi in `target_stats.ceu_now_arcsec` |
 | watcher NEOCP | ✅ | `neocp_poll` ogni 10 min: candidati, evoluzione, sparizioni. La storia che l'MPC non conserva |
@@ -208,7 +209,7 @@ ext4 nella VM, e l'import di 1.557.104 oggetti passa in 140 s con il servizio
 acceso.
 
 Su `data/` resta ciò che ha senso vedere e copiare: i cataloghi scaricati, le
-effemeridi, i log e i **backup** delle sei tabelle non rigenerabili — che sono
+effemeridi, i log e i **backup** delle sette tabelle non rigenerabili — che sono
 l'unico ponte fra il volume e il mondo, e per questo contano più di prima.
 
 Ne segue che dall'host il database del servizio non è raggiungibile, ed è un
@@ -248,11 +249,12 @@ pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
 | `mpcorb_sync` | ogni 6 h | scarica se l'ETag è cambiato, importa, `ANALYZE` |
 | `astorb_sync` | ogni 6 h | lo strato dell'incertezza |
 | `cometels_sync` | ogni 6 h | le comete |
-| `backup` | ogni giorno 03:00 UTC | le sei tabelle non rigenerabili |
+| `backup` | ogni giorno 03:00 UTC | le sette tabelle non rigenerabili |
 | `night_plan` | ogni 6 h | crepuscoli e Luna, due settimane avanti per sito |
 | `screening` | ogni giorno 02:10 UTC | propaga la popolazione monitorata, scrive tracce e `target_stats` |
 | `windows` | ogni giorno 02:20 UTC | finestre e punteggio per (target × setup × notte), tre notti avanti |
 | `radar_states` | ogni giorno 02:40 UTC | stati e transizioni per (target × setup) |
+| `intents_refresh` | ogni giorno 02:50 UTC | chiude i propositi la cui occasione è passata, con il motivo |
 | `neocp_poll` | ogni 10 min | candidati NEOCP: nuovi, evoluzione, sparizioni |
 | `pccp_poll` | ogni 20 min | candidati cometari PCCP |
 | `destiny_poll` | ogni 30 min | che fine ha fatto ogni candidato uscito dalla NEOCP |

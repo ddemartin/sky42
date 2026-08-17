@@ -293,6 +293,40 @@ async def test_il_link_costruito_apre_davvero_la_scheda(user: User, catalogo_min
     await user.should_see("Tj =")
 
 
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.programma")
+async def test_programma_mostra_propositi_sessioni_e_scaduti(user: User,
+                                                             sito_e_screening):
+    """Il giro completo dell'utente: decido, osservo, e quel che non ho fatto
+    resta in elenco con il suo motivo."""
+    from services import intent_service, radar_service
+
+    radar_service.run_radar()
+    intent_service.add("1", purpose="astrometria", source="test")
+    intent_service.add("C/1995 O1", source="test")
+    intent_service.log_observation("1", obs_start="2026-08-17T03:00:00Z",
+                                   n_frames=10, exposure_s=120.0,
+                                   outcome="detected", limiting_mag=21.0)
+
+    await user.open("/programma")
+    await user.should_see("Programma osservativo")
+    await user.should_see("In programma")
+    await user.should_see("Come sono andati")
+    await user.should_see("Sessioni")
+
+    righe = [r for t in user.find(ui.table).elements for r in t.rows]
+    chiuso = next(r for r in righe if r.get("motivo") == "osservato")
+    assert chiuso["stato"] == "osservato"
+    sessione = next(r for r in righe if r.get("limite") == "21.0")
+    assert sessione["esito"] == "detected" and sessione["pose"] == "10"
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.programma")
+async def test_programma_regge_il_database_vuoto(user: User, db):
+    await user.open("/programma")
+    await user.should_see("Niente in programma")
+    await user.should_see("Nessuna sessione registrata")
+
+
 @pytest.mark.module_under_test("gui.pages.home", "gui.pages.stanotte")
 async def test_stanotte_regge_il_database_vuoto(user: User, db):
     """Chi apre la pagina prima che i job abbiano girato deve leggere *perché*

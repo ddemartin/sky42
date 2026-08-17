@@ -12,18 +12,21 @@ dice perché ogni cosa è com'è. Lo schema commentato sta in
 
 ## Le cinque regole che non si violano
 
-1. **Il catalogo è scaricato: SQLite è un indice rigenerabile — tranne cinque
+1. **Il catalogo è scaricato: SQLite è un indice rigenerabile — tranne sette
    tabelle.** La prova è sempre la stessa: *se cancello `data/sky42.db` e
    riavvio, perdo qualcosa?* Per `target`, `orbit`, `screening_track`,
    `target_stats`, `night`, `observation_window` la risposta deve essere no:
    si riscaricano da ASTORB/MPC e si ricalcolano. Non vale per
    **`mpc_candidate` + `mpc_candidate_snapshot`** (l'MPC la lista NEOCP la
    riscrive e non conserva niente: quella storia esiste solo qui),
-   **`state_transition`**, **`observation_log`**, **`watchlist`** e
-   **`setup_calibration`**. Quelle cinque si salvano nel backup e non hanno
-   chiavi esterne distruttive verso il gruppo rigenerabile: `observation_log`
-   e `state_transition` puntano a `setup(id)` **senza CASCADE**, o rigenerare
-   l'hardware cancellerebbe la storia delle osservazioni.
+   **`state_transition`**, **`observing_intent`**, **`observation_log`**,
+   **`watchlist`** e **`setup_calibration`**. Quelle sette si salvano nel backup
+   e non hanno chiavi esterne distruttive verso il gruppo rigenerabile:
+   `observation_log` e `state_transition` puntano a `setup(id)` **senza
+   CASCADE**, o rigenerare l'hardware cancellerebbe la storia delle
+   osservazioni. E `observing_intent` e `observation_log` portano la
+   **designazione** accanto al `target_id`: è la chiave che sopravvive a un
+   catalogo riscaricato, dove gli id sono altri.
 
 2. **Non si chiama JPL per cercare, solo per confermare.** Horizons e SBDB
    entrano *dopo* lo screening, sulla shortlist, con budget giornaliero e cache
@@ -123,6 +126,9 @@ services/
 ├── radar_service.py    V_ref per setup, stati, transizioni. Nessun calcolo
 │                       di posizioni: se ne compare uno, sta nel posto sbagliato
 ├── ranking_service.py  il profilo attivo dal database e il contesto dell'oggetto
+├── intent_service.py   i propositi osservativi e le sessioni. La chiave è la
+│                       **designazione**, non l'id: `target` è rigenerabile e un
+│                       ripristino sposterebbe i propositi da un oggetto all'altro
 ├── dashboard_service.py le tre sezioni di /stanotte. **Nessun calcolo**: se qui
 │                       comparisse una propagazione, vorrebbe dire che uno dei
 │                       tre job della notte non ha distillato abbastanza
@@ -162,13 +168,14 @@ job, ogni job idempotente e con una riga in `job_run`.
 | `mpcorb_sync` | ogni 6 h, :05 | scarica se l'ETag è cambiato, importa, `ANALYZE` |
 | `astorb_sync` | ogni 6 h, :20 | lo strato dell'incertezza CEU/PEU |
 | `cometels_sync` | ogni 6 h, :35 | elementi cometari MPC |
-| `backup` | 03:00 UTC | le sei tabelle non rigenerabili |
+| `backup` | 03:00 UTC | le sette tabelle non rigenerabili |
 | `housekeeping` | domenica 04:00 UTC | pota i registri, riallinea le statistiche |
 | `neocp_poll` | 10 min | lista NEOCP → candidati e snapshot |
 | `pccp_poll` | 20 min | lista PCCP |
 | `destiny_poll` | 30 min | il **destino** dei candidati usciti dalla NEOCP |
 | `screening` | 02:10 UTC | propagazione 24 mesi avanti + 15 anni indietro, `target_stats` |
 | `radar_states` | 02:40 UTC | stati e transizioni per (target × setup), con isteresi |
+| `intents_refresh` | 02:50 UTC | chiude i propositi la cui occasione è passata, con il motivo |
 | `night_plan` | ogni 6 h, :50 | crepuscoli e Luna, due settimane avanti per sito |
 | `windows` | 02:20 UTC | finestre e score per (target × setup × notte), tre notti |
 | `horizons_verify` | ⏳ M2 | solo shortlist, con budget |

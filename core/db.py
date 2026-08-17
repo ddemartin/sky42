@@ -16,7 +16,7 @@ from core.timeutil import now_iso
 log = logging.getLogger("sky42.db")
 
 # Versione dello schema. Si alza quando si aggiunge una migrazione a MIGRATIONS.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Migrazioni successive alla prima creazione: {versione: [istruzioni SQL]}.
 # Devono essere idempotenti e non distruttive.
@@ -42,6 +42,52 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE mpc_candidate_snapshot ADD COLUMN h_mag REAL",
         "ALTER TABLE mpc_candidate_snapshot ADD COLUMN not_seen_days REAL",
         "ALTER TABLE target_stats ADD COLUMN selectors TEXT",
+    ],
+    # 4 — i propositi osservativi e le sessioni. La tabella nuova è **non
+    # rigenerabile** (entra nel backup): è una decisione dell'utente, non un
+    # dato scaricato. `observation_log` guadagna i campi che servono davvero a
+    # una sessione — quelli che si scoprono guardando un registro tenuto per
+    # tre anni a mano, non progettando a tavolino: cartella d'archivio, scopo,
+    # elaborata, riportata, e le quattro misure di qualità (FWHM, SNR,
+    # magnitudine limite, residui) che sono anche l'unico modo di tarare
+    # `vlim_ref` sul campo.
+    4: [
+        """CREATE TABLE IF NOT EXISTS observing_intent (
+               id              INTEGER PRIMARY KEY,
+               desig           TEXT NOT NULL,
+               target_id       INTEGER REFERENCES target(id) ON DELETE SET NULL,
+               setup_id        INTEGER REFERENCES setup(id),
+               created_at      TEXT NOT NULL,
+               created_from    TEXT,
+               purpose         TEXT,
+               priority        INTEGER NOT NULL DEFAULT 0,
+               deadline        TEXT,
+               status          TEXT NOT NULL DEFAULT 'planned' CHECK (status IN (
+                                   'planned','observed','expired','dropped')),
+               status_at       TEXT NOT NULL,
+               closed_reason   TEXT CHECK (closed_reason IN (
+                                   'out_of_range','no_window','deadline','observed','manuale')),
+               context_json    TEXT,
+               note            TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_intent_status ON observing_intent(status, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_intent_desig ON observing_intent(desig)",
+        "ALTER TABLE observation_log ADD COLUMN desig TEXT",
+        "ALTER TABLE observation_log ADD COLUMN intent_id INTEGER REFERENCES observing_intent(id) ON DELETE SET NULL",
+        "ALTER TABLE observation_log ADD COLUMN obs_end TEXT",
+        "ALTER TABLE observation_log ADD COLUMN total_exposure_s REAL",
+        "ALTER TABLE observation_log ADD COLUMN tracking_mode TEXT",
+        "ALTER TABLE observation_log ADD COLUMN purpose TEXT",
+        "ALTER TABLE observation_log ADD COLUMN fwhm_arcsec REAL",
+        "ALTER TABLE observation_log ADD COLUMN snr_median REAL",
+        "ALTER TABLE observation_log ADD COLUMN limiting_mag REAL",
+        "ALTER TABLE observation_log ADD COLUMN residual_arcsec REAL",
+        "ALTER TABLE observation_log ADD COLUMN processed INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE observation_log ADD COLUMN reported_mpc TEXT",
+        "ALTER TABLE observation_log ADD COLUMN reported_cobs TEXT",
+        "ALTER TABLE observation_log ADD COLUMN archive_folder TEXT",
+        "ALTER TABLE observation_log ADD COLUMN cost REAL",
+        "CREATE INDEX IF NOT EXISTS idx_obslog_intent ON observation_log(intent_id)",
     ],
 }
 

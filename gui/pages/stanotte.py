@@ -180,6 +180,12 @@ def _scheda(r: dict) -> None:
 
             ui.space()
             with ui.column().classes("gap-1 items-end"):
+                # Il pulsante che chiude il giro: da suggerimento a decisione.
+                # Nasce **qui** e non nella pagina Programma perché è qui che si
+                # guarda la lista e si sceglie — un programma che si compila
+                # altrove è un programma che resta vuoto.
+                ui.button("Osserva", icon="add_task").props("flat dense") \
+                    .on("click", lambda x=r: _in_programma(x))
                 ui.badge(f"{r['grade']} {fmt_num(r['score'], 2)}") \
                     .props(f"color={GRADI.get(r['grade'], 'grey')}")
                 # BEST SITE: il primo della lista, e gli altri accanto con il
@@ -191,6 +197,24 @@ def _scheda(r: dict) -> None:
                             .tooltip(f"{s['setup_code']} · "
                                      f"{fmt_num(s['useful_hours'], 1)} h utili · "
                                      f"margine {fmt_num(s['depth_margin'], 1)} mag")
+
+
+async def _in_programma(r: dict) -> None:
+    """«Voglio osservarlo»: il proposito nasce con il setup da cui viene meglio.
+
+    Non con «qualunque setup»: la riga in cima dice *da dove* conviene, e
+    buttare via quella scelta significherebbe far ricominciare il ragionamento
+    a chi apre il programma domani.
+    """
+    from services import intent_service as prop
+
+    p = await run.io_bound(prop.add, r["primary_desig"], r["setup_code"],
+                           None, 0, "stanotte")
+    if p is None:
+        ui.notify("non trovato in catalogo", type="negative")
+        return
+    ui.notify(f"{r['display_name']} è in programma con {r['setup_code']}",
+              type="positive")
 
 
 def _best_sites(righe: list[dict], box) -> None:

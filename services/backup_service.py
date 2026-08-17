@@ -40,6 +40,7 @@ TABLES = [
     "mpc_candidate",
     "mpc_candidate_snapshot",
     "state_transition",
+    "observing_intent",
     "observation_log",
     "watchlist",
     "setup_calibration",

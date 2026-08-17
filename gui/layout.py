@@ -19,6 +19,8 @@ FUNCTIONS = [
      "desc": "Effemeride di un oggetto del catalogo: posizione, distanza, magnitudine, moto."},
     {"key": "tonight", "title": "Stanotte", "icon": "nights_stay", "route": "/stanotte",
      "desc": "Cosa osservare stanotte, da quale sito e in quale finestra."},
+    {"key": "programma", "title": "Programma", "icon": "checklist", "route": "/programma",
+     "desc": "Cosa ho deciso di osservare, com'\u00e8 andata, e cosa \u00e8 scaduto prima che ci arrivassi."},
     {"key": "radar", "title": "Returning radar", "icon": "radar", "route": None,
      "desc": "Chi sta rientrando nella portata dei telescopi dopo mesi o anni."},
     {"key": "comete", "title": "Comete", "icon": "auto_awesome", "route": None,
