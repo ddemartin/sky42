@@ -110,6 +110,13 @@ _SETUP = [
     ("min_altitude_deg", "num", None),
     ("typical_seeing_arcsec", "num", 2.0),
     ("sun_alt_max_deg", "num", -15.0),
+    # Quanto costa un'ora di quel setup. Su un telescopio remoto affittato il
+    # tempo si paga, e senza questo numero il ranking consiglia sempre lo
+    # strumento più grande: `n × t` di pose è anche un conto in valuta, e una
+    # sessione da un'ora su un 20" non è la stessa decisione di una su un 17".
+    # `None` = non si paga (telescopio proprio), che è diverso da zero.
+    ("cost_per_hour", "num", None),
+    ("currency", "str", None),
     ("valid_from", "str", None),
     ("valid_to", "str", None),
     ("active", "bool", True),
@@ -125,6 +132,29 @@ _EXTRA_KEYS = {
     "telescope": set(),
     "camera": set(),
 }
+
+
+def _verifica_fuso(tz: str, dove: str) -> None:
+    """Il fuso dev'essere un nome IANA vero, e si controlla **qui**.
+
+    Non è pedanteria: `America/Utah` non esiste (il fuso dello Utah è
+    `America/Denver`), il reconcile lo accettava senza fiatare, e il guasto
+    saltava fuori molto più tardi — dentro `night_events`, cioè dentro un job
+    di fondo alle tre di notte, con un `ZoneInfoNotFoundError` che non nomina
+    né il file né il sito. Il reconcile verifica tutto e poi scrive
+    (MEMORANDUM 2026-08-16): un fuso inventato è esattamente il genere di cosa
+    che deve fermarlo.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise SiteConfigError(
+            f"{dove}: fuso orario sconosciuto '{tz}'. Serve un nome IANA "
+            f"(«America/Denver», «America/Santiago», «Europe/Rome»), non il "
+            f"nome dello stato o della regione."
+        ) from exc
 
 
 def _take(node: dict, spec: list[tuple], kind: str, where: str) -> dict:
@@ -198,6 +228,7 @@ def load_sites(sites_dir: Path | None = None) -> list[dict]:
             raise SiteConfigError(f"{path.name}: file vuoto")
         obs = _take(raw, _OBSERVATORY, "observatory", path.name)
         registra(obs["code"], path, "osservatorio")
+        _verifica_fuso(obs["timezone"], path.name)
 
         horizon = raw.get("horizon")
         if horizon is not None:

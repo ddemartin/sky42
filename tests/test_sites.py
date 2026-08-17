@@ -157,6 +157,32 @@ def test_codici_duplicati_fra_file(sites_dir):
         load_sites(sites_dir)
 
 
+def test_un_fuso_inventato_ferma_il_reconcile(sites_dir):
+    """Caso vero del 2026-08-17: un file nuovo con `America/Utah`, che non
+    esiste — lo Utah sta in `America/Denver`. Il reconcile lo accettava e il
+    guasto saltava fuori molto dopo, dentro `night_events`, cioè in un job di
+    fondo alle tre di notte e con un errore che non nomina né il file né il
+    sito. Il reconcile verifica tutto **e poi** scrive."""
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace("timezone: America/Santiago",
+                                      "timezone: America/Utah"), encoding="utf-8")
+    with pytest.raises(SiteConfigError, match="fuso orario sconosciuto"):
+        load_sites(sites_dir)
+
+
+def test_il_costo_orario_e_facoltativo_e_arriva_nel_database(db, sites_dir):
+    """Un telescopio proprio non ha listino: `None` significa «non si paga», ed
+    è diverso da zero."""
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace("    active: true\n",
+                                      "    cost_per_hour: 42.5\n    currency: EUR\n"
+                                      "    active: true\n", 1),
+        encoding="utf-8")
+    reconcile(sites_dir)
+    riga = _riga("SELECT cost_per_hour, currency FROM setup")
+    assert riga["cost_per_hour"] == 42.5 and riga["currency"] == "EUR"
+
+
 def test_manca_un_campo_obbligatorio(sites_dir):
     (sites_dir / "cile.yml").write_text(
         textwrap.dedent(SITO).replace("    vlim_ref: 21.3\n", ""), encoding="utf-8"

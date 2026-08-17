@@ -16,7 +16,7 @@ from core.timeutil import now_iso
 log = logging.getLogger("sky42.db")
 
 # Versione dello schema. Si alza quando si aggiunge una migrazione a MIGRATIONS.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Migrazioni successive alla prima creazione: {versione: [istruzioni SQL]}.
 # Devono essere idempotenti e non distruttive.
@@ -88,6 +88,14 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE observation_log ADD COLUMN archive_folder TEXT",
         "ALTER TABLE observation_log ADD COLUMN cost REAL",
         "CREATE INDEX IF NOT EXISTS idx_obslog_intent ON observation_log(intent_id)",
+    ],
+    # 5 — il costo orario del setup. Su un telescopio remoto affittato il tempo
+    # si paga, e finché il costo non sta accanto al limite ogni confronto fra
+    # strumenti finisce sul più grande. Il valore sta negli YAML: queste due
+    # colonne sono l'indice, come per tutto il resto dell'hardware.
+    5: [
+        "ALTER TABLE setup ADD COLUMN cost_per_hour REAL",
+        "ALTER TABLE setup ADD COLUMN currency TEXT",
     ],
 }
 

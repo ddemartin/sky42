@@ -118,6 +118,12 @@ CREATE TABLE setup (
     min_altitude_deg        REAL,                   -- NULL = eredita dal telescopio
     typical_seeing_arcsec   REAL NOT NULL DEFAULT 2.0,
     sun_alt_max_deg         REAL NOT NULL DEFAULT -15,  -- crepuscolo accettato
+    -- Quanto costa un'ora di questo setup. Su un telescopio remoto affittato il
+    -- tempo si paga: `n × t` di pose è anche un conto in valuta, e senza questo
+    -- numero ogni confronto fra strumenti consiglia il più grande. NULL = non
+    -- si paga (telescopio proprio), che è diverso da zero.
+    cost_per_hour           REAL,
+    currency                TEXT,                   -- 'EUR', 'USD', punti, ...
     valid_from              TEXT,
     valid_to                TEXT,
     active                  INTEGER NOT NULL DEFAULT 1,

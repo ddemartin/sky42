@@ -66,5 +66,11 @@ setups:
     max_airmass: 2.0
     typical_seeing_arcsec: 1.6
     sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
+    # Quanto costa un'ora di questo setup. Su un telescopio affittato il tempo
+    # si paga, e senza questo numero ogni confronto fra strumenti finisce sul
+    # più grande. Da riempire con il listino vero: il costo di una sessione lo
+    # calcola sky42 dal tempo totale di posa.
+    # cost_per_hour: 0.0
+    # currency: EUR
     valid_from: 2026-01-01
     active: true

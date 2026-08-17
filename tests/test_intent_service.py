@@ -210,6 +210,42 @@ def test_registrare_una_sessione_chiude_il_proposito(acceso):
     assert riga["status"] == "observed" and riga["closed_reason"] == "observed"
 
 
+def test_il_costo_di_una_sessione_viene_dalle_ore_di_posa(acceso):
+    """Su un telescopio affittato il tempo si paga, e nessuno fa quel conto alle
+    tre di notte. Si contano le **ore di posa**, non la durata della finestra:
+    è quello che i servizi remoti fatturano."""
+    conn = connect()
+    try:
+        conn.execute("UPDATE setup SET cost_per_hour=30.0, currency='EUR'")
+    finally:
+        conn.close()
+
+    sess = intent_service.log_observation(
+        "3200", obs_start="2026-08-17T03:10:00Z", setup_code="rc700-qhy600-bin2",
+        n_frames=30, exposure_s=120.0, total_exposure_s=3600.0)
+    assert sess["cost"] == 30.0                     # un'ora esatta
+
+    # Un costo dichiarato vince: le sessioni vere hanno sovrapprezzi e notti
+    # perse a metà.
+    altra = intent_service.log_observation(
+        "2010 TK7", obs_start="2026-08-17T04:10:00Z",
+        setup_code="rc700-qhy600-bin2", total_exposure_s=3600.0, cost=12.5)
+    assert altra["cost"] == 12.5
+
+    spesa = intent_service.spesa()
+    assert spesa["totale"] == pytest.approx(42.5)
+    assert spesa["per_setup"][0]["currency"] == "EUR"
+
+
+def test_senza_listino_il_costo_resta_ignoto_non_zero(acceso):
+    """`None` è «non si paga», e un totale che lo contasse come zero direbbe che
+    il telescopio di casa costa quanto quello affittato."""
+    sess = intent_service.log_observation(
+        "3200", obs_start="2026-08-17T03:10:00Z", setup_code="rc700-qhy600-bin2",
+        total_exposure_s=3600.0)
+    assert sess["cost"] is None
+
+
 def test_una_sessione_si_aggancia_da_sola_al_proposito_aperto(acceso):
     """Nessuno vuole scegliere da un elenco la cosa che ha appena deciso di fare."""
     p = intent_service.add("3200")

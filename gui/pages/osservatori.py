@@ -90,6 +90,31 @@ def _notti(sito: dict) -> None:
     ).classes("text-xs opacity-60")
 
 
+# Il moto di riferimento con cui si mostra la posa massima: 5"/min è un NEO
+# ordinario a qualche decina di lunari, cioè il caso per cui la domanda si pone.
+# Un asteroide di fascia principale ne fa meno di uno, e la posa la limita solo
+# lo strumento.
+MOTO_RIFERIMENTO_ARCSEC_MIN = 5.0
+
+
+def _posa_max(s: dict) -> str:
+    """La posa più lunga che non striscia, per il moto di riferimento.
+
+    La formula sta in `core/visibility/limits.py` e non si riscrive qui: la
+    pagina la chiama con i numeri del setup. È anche il modo più diretto per
+    accorgersi di una scala del pixel sbagliata — una posa massima che non
+    somiglia a quelle che si usano davvero è quasi sempre un `pixel_um` copiato
+    da un'altra camera.
+    """
+    from core.visibility.limits import max_exposure_for_trailing
+
+    t = float(max_exposure_for_trailing(
+        MOTO_RIFERIMENTO_ARCSEC_MIN, s["typical_seeing_arcsec"],
+        s["pixel_scale_arcsec"]))
+    limite = min(t, float(s["max_exposure_s"]))
+    return f"{limite:.0f} s" + (" (strumento)" if limite < t else "")
+
+
 @ui.page("/osservatori")
 def osservatori_page() -> None:
     header("Osservatori")
@@ -176,6 +201,8 @@ def osservatori_page() -> None:
                              ("campo", "campo (')", "right"), ("f", "f/", "right"),
                              ("vlim", "V lim", "right"), ("posa", "posa (s)", "right"),
                              ("alt", "alt. min (°)", "right"), ("airmass", "airmass max", "right"),
+                             ("striscia", "posa max a 5\"/min", "right"),
+                             ("costo", "costo/ora", "right"),
                              ("stato", "stato")),
                         [{
                             "code": s["code"],
@@ -196,12 +223,27 @@ def osservatori_page() -> None:
                                     f" (max {fmt_num(s['max_exposure_s'], 0)})",
                             "alt": fmt_num(s["min_altitude_eff_deg"], 0),
                             "airmass": fmt_num(s["max_airmass"], 1),
+                            # La posa più lunga che non striscia l'oggetto, per
+                            # un moto di riferimento: si insegue siderale e si
+                            # somma poi sull'oggetto, quindi il limite è quanto
+                            # la traccia resta dentro la tolleranza — che è il
+                            # seeing, o una volta e mezzo il pixel se lo
+                            # strumento è sottocampionato. È il numero che rende
+                            # visibile a cosa serve la scala del pixel.
+                            "striscia": _posa_max(s),
+                            "costo": (f"{fmt_num(s['cost_per_hour'], 2)} "
+                                      f"{s['currency'] or ''}".strip()
+                                      if s["cost_per_hour"] is not None else "—"),
                             "stato": "attivo" if s["active"] else f"dismesso {s['valid_to'] or ''}",
                         } for s in sito["setups"]],
                     )
                     ui.label(
                         "Scala e campo non stanno nei file: sono derivati da focale, "
-                        "riduttore, pixel e binning a ogni riallineamento."
+                        "riduttore, pixel e binning a ogni riallineamento. La posa "
+                        "massima è quella che tiene la traccia entro la tolleranza "
+                        "(seeing, o 1,5 pixel se lo strumento è sottocampionato) per "
+                        "un oggetto che si muove di 5\"/min: si insegue siderale e si "
+                        "somma sull'oggetto."
                     ).classes("text-xs opacity-60")
 
                     _notti(sito)

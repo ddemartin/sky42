@@ -360,6 +360,16 @@ def log_observation(desig: str, obs_start: str, setup_code: str | None = None,
                 colonne.append(campo)
                 valori.append(campi[campo])
 
+        # Il costo si calcola dal tempo di posa, se il setup ha un listino e
+        # nessuno l'ha scritto a mano: è aritmetica, e nessuno la fa volentieri
+        # alle tre di notte. Un costo dichiarato vince sempre — le sessioni
+        # vere hanno sovrapprezzi, notti perse, tariffe di Luna piena.
+        if "cost" not in colonne:
+            costo = _costo(conn, setup_id, campi.get("total_exposure_s"))
+            if costo is not None:
+                colonne.append("cost")
+                valori.append(costo)
+
         with transaction(conn):
             cur = conn.execute(
                 f"""INSERT INTO observation_log ({', '.join(colonne)})
@@ -376,6 +386,48 @@ def log_observation(desig: str, obs_start: str, setup_code: str | None = None,
         return dict(riga)
     finally:
         conn.close()
+
+
+def _costo(conn, setup_id: int | None, total_exposure_s) -> float | None:
+    """Il costo di una sessione: ore di posa × listino del setup.
+
+    Si conta il **tempo di posa**, non la durata della finestra: è quello che i
+    servizi remoti fatturano, ed è l'unico numero che sky42 conosce davvero.
+    `None` se il setup non ha un listino — che significa «non si paga», ed è
+    diverso da zero.
+    """
+    if setup_id is None or not total_exposure_s:
+        return None
+    riga = conn.execute("SELECT cost_per_hour FROM setup WHERE id=?",
+                        (setup_id,)).fetchone()
+    if riga is None or riga["cost_per_hour"] is None:
+        return None
+    return round(float(total_exposure_s) / 3600.0 * float(riga["cost_per_hour"]), 2)
+
+
+def spesa(days: float = 365.0) -> dict:
+    """Quanto si è speso, per setup. La domanda di fine mese.
+
+    Le sessioni senza costo non valgono zero: valgono «non si paga», e si
+    contano a parte — un totale che le mescolasse direbbe che il telescopio di
+    casa costa quanto quello affittato.
+    """
+    conn = connect()
+    try:
+        righe = conn.execute(
+            """SELECT s.code AS setup_code, s.currency,
+                      count(*) AS sessioni,
+                      sum(l.cost IS NOT NULL) AS con_costo,
+                      round(sum(COALESCE(l.cost, 0)), 2) AS totale,
+                      round(sum(COALESCE(l.total_exposure_s, 0)) / 3600.0, 2) AS ore
+               FROM observation_log l
+               LEFT JOIN setup s ON s.id = l.setup_id
+               WHERE julianday(l.obs_start) > julianday('now') - ?
+               GROUP BY l.setup_id ORDER BY totale DESC""", (days,)).fetchall()
+    finally:
+        conn.close()
+    return {"per_setup": [dict(r) for r in righe],
+            "totale": round(sum(r["totale"] or 0 for r in righe), 2)}
 
 
 # --- letture per l'interfaccia -----------------------------------------------
