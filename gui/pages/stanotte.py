@@ -369,15 +369,67 @@ def _scheda(r: dict) -> None:
                     .on("click", lambda x=r: _in_programma(x))
                 ui.badge(f"{r['grade']} {fmt_num(r['score'], 2)}") \
                     .props(f"color={GRADI.get(r['grade'], 'grey')}")
-                # BEST SITE: il primo della lista, e gli altri accanto con il
-                # loro giudizio — anche quando è NOT_USEFUL.
+                # BEST SITE: un badge per **sito**, non per setup. La domanda
+                # è «da dove lo prendo»; con quale strumento è quella dopo, e
+                # sta nel tooltip. Con dieci telescopi su quattro siti un badge
+                # per setup ripeteva «utah-great-basin-desert» tre volte senza
+                # mai dire quale dei tre — l'informazione era nel numero di
+                # badge, cioè in nessun posto leggibile.
                 with ui.row().classes("gap-1 items-center"):
-                    for s in r["sites"]:
-                        ui.badge(f"{s['site_code']} {s['grade']}") \
-                            .props(f"color={GRADI.get(s['grade'], 'grey')} outline") \
-                            .tooltip(f"{s['setup_code']} · "
-                                     f"{fmt_num(s['useful_hours'], 1)} h utili · "
-                                     f"margine {fmt_num(s['depth_margin'], 1)} mag")
+                    for sito in _per_sito(r["sites"]):
+                        # Da dove **non** si vede: solo il nome, spento. Il
+                        # grado e il conteggio degli strumenti lì non dicono
+                        # niente — «NOT_USEFUL ×3» è tre volte la stessa
+                        # notizia — ma il sito resta a schermo, perché la sua
+                        # assenza si confonderebbe con un sito per cui il conto
+                        # non è mai stato fatto.
+                        if sito["grade"] == "NOT_USEFUL":
+                            ui.badge(sito["site_code"]) \
+                                .props("color=grey-5 outline").classes("opacity-40") \
+                                .tooltip(sito["dettaglio"])
+                            continue
+                        etichetta = f"{sito['site_code']} {sito['grade']}"
+                        if sito["n_setup"] > 1:
+                            etichetta += f" ×{sito['n_setup']}"
+                        ui.badge(etichetta) \
+                            .props(f"color={GRADI.get(sito['grade'], 'grey')} outline") \
+                            .tooltip(sito["dettaglio"])
+
+
+def _per_sito(sites: list[dict]) -> list[dict]:
+    """I setup raccolti per sito, con il migliore che dà il colore al badge.
+
+    Il grado del sito è quello del **suo setup migliore**: se da Siding Spring
+    un oggetto è PRIME con T59 e POOR con T32, da Siding Spring è PRIME — quel
+    che si può fare, non la media di quel che si potrebbe fare.
+
+    I setup restano tutti nel tooltip, compresi i NOT_USEFUL (regola 5), e in
+    ordine di punteggio: serve a sapere su cosa ripiegare quando il primo è già
+    prenotato, che è il modo in cui si usa davvero una rete a noleggio.
+    """
+    ordine = {g: i for i, g in enumerate(GRADI)}
+    per_sito: dict[str, list] = {}
+    for s in sites:
+        per_sito.setdefault(s["site_code"], []).append(s)
+
+    out = []
+    for code, setups in per_sito.items():
+        setups.sort(key=lambda x: (-(x["score"] or -1), -(x["depth_margin"] or -99)))
+        migliore = min(setups, key=lambda x: ordine.get(x["grade"], 99))
+        out.append({
+            "site_code": code,
+            "site_name": setups[0]["site_name"],
+            "grade": migliore["grade"],
+            "score": migliore["score"],
+            "n_setup": len(setups),
+            "dettaglio": f"{setups[0]['site_name']}\n" + "\n".join(
+                f"{x['setup_code']}: {x['grade']} · "
+                f"{fmt_num(x['useful_hours'], 1)} h · "
+                f"margine {fmt_num(x['depth_margin'], 1)} mag" for x in setups),
+        })
+    # I siti da cui si vede meglio per primi; a parità, quello con più strumenti.
+    out.sort(key=lambda x: (ordine.get(x["grade"], 99), -(x["score"] or -1)))
+    return out
 
 
 async def _in_programma(r: dict) -> None:

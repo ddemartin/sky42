@@ -479,3 +479,34 @@ async def test_candidati_regge_il_database_vuoto(user: User, db):
     await user.open("/candidati")
     await user.should_see("Nessun candidato in lista")
     await user.should_see("Nessun candidato ancora chiuso")
+
+
+def test_i_badge_dei_siti_si_raggruppano_per_sito_non_per_setup():
+    """Con dieci telescopi su quattro siti, un badge per setup ripeteva
+    «utah-great-basin-desert» tre volte senza mai dire quale dei tre: l'unica
+    informazione era il *numero* di badge, cioè nessun posto leggibile."""
+    from gui.pages.stanotte import _per_sito
+
+    sites = [
+        {"site_code": "utah", "site_name": "Utah", "setup_code": "T11",
+         "grade": "POOR", "score": 0.2, "useful_hours": 1.0, "depth_margin": 0.1},
+        {"site_code": "utah", "site_name": "Utah", "setup_code": "T25",
+         "grade": "GOOD", "score": 0.6, "useful_hours": 3.0, "depth_margin": 1.2},
+        {"site_code": "utah", "site_name": "Utah", "setup_code": "T21",
+         "grade": "NOT_USEFUL", "score": None, "useful_hours": 0.0,
+         "depth_margin": -1.0},
+        {"site_code": "sso", "site_name": "SSO", "setup_code": "T59",
+         "grade": "PRIME", "score": 0.9, "useful_hours": 7.0, "depth_margin": 2.0},
+    ]
+    righe = _per_sito(sites)
+    assert [r["site_code"] for r in righe] == ["sso", "utah"], "il migliore in testa"
+
+    utah = righe[1]
+    assert utah["n_setup"] == 3, "un badge solo per i tre strumenti"
+    # Il grado del sito è quello del suo setup **migliore**: da Utah stanotte si
+    # può fare GOOD, e dirlo POOR o NOT_USEFUL sarebbe una media senza senso.
+    assert utah["grade"] == "GOOD"
+    # I setup restano tutti nel tooltip, NOT_USEFUL compresi (regola 5), in
+    # ordine di punteggio: serve a sapere su cosa ripiegare se il primo è preso.
+    assert utah["dettaglio"].index("T25") < utah["dettaglio"].index("T11")
+    assert "T21" in utah["dettaglio"] and "NOT_USEFUL" in utah["dettaglio"]
