@@ -216,3 +216,39 @@ def test_una_finestra_corta_declassa_lo_stato(pronto):
     from core.radar import states
     assert states.classify(v_pred=12.0, v_ref=21.0, useful_hours=0.2) == "OUT_OF_RANGE"
     assert states.classify(v_pred=12.0, v_ref=21.0, useful_hours=None) == "PRIME"
+
+
+def test_un_setup_fuori_servizio_esce_dalle_finestre(pronto):  # noqa: F811
+    """Il job **salta** i setup inattivi invece di ricalcolarli: senza una
+    potatura apposta, le righe scritte ieri — quando il setup era ancora
+    attivo — resterebbero per le notti di oggi e di domani, e ci resterebbero
+    per sempre. Un telescopio andato offline continuava a comparire in
+    `/stanotte` con le finestre del giorno prima."""
+    from core.db import connect
+
+    night_service.plan_nights(2)
+    window_service.run_windows(n_nights=2)
+
+    conn = connect()
+    try:
+        setup_id, code = conn.execute(
+            "SELECT id, code FROM setup WHERE active=1 LIMIT 1").fetchone()
+        prima = conn.execute(
+            "SELECT count(*) FROM observation_window WHERE setup_id=?",
+            (setup_id,)).fetchone()[0]
+        assert prima > 0, "senza righe il test non prova niente"
+        conn.execute("UPDATE setup SET active=0 WHERE id=?", (setup_id,))
+    finally:
+        conn.close()
+
+    esito = window_service.run_windows(n_nights=2)
+    assert esito["potate"] >= prima
+
+    conn = connect()
+    try:
+        dopo = conn.execute(
+            "SELECT count(*) FROM observation_window WHERE setup_id=?",
+            (setup_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    assert dopo == 0, f"{code} è fuori servizio ma ha ancora {dopo} finestre"

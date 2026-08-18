@@ -34,6 +34,10 @@ def catalogo_page() -> None:
         # --- riga dei numeri grossi ---------------------------------------
         totals = ui.row().classes("gap-4 flex-wrap")
 
+        # --- oggetti nuovi -------------------------------------------------
+        ui.label("Oggetti nuovi in catalogo").classes("text-xl font-bold")
+        nuovi_box = ui.column().classes("w-full gap-2 -mt-2")
+
         # --- sorgenti ------------------------------------------------------
         with ui.row().classes("w-full items-center gap-3"):
             ui.label("Sorgenti").classes("text-xl font-bold")
@@ -79,6 +83,28 @@ def catalogo_page() -> None:
             _stat("numerati", fmt_int(c["numerati"]))
             _stat("con incertezza CEU", fmt_int(c["con_ceu"]), "strato ASTORB")
             _stat("con ultima osservazione", fmt_int(c["con_ultima_oss"]), "solo l'MPC ce l'ha")
+
+        nuovi = cat.new_objects()
+        nuovi_box.clear()
+        with nuovi_box:
+            with ui.row().classes("gap-4 flex-wrap"):
+                for w in nuovi["windows"]:
+                    dettaglio = (f"{fmt_int(w['asteroidi'])} asteroidi · "
+                                 f"{fmt_int(w['comete'])} comete")
+                    # Una finestra più lunga dell'archivio non misura le novità,
+                    # misura l'età del database: `target` è rigenerabile, e dopo
+                    # un ripristino tutti i `created_at` sono di quel giorno.
+                    _stat(w["fascia"], fmt_int(w["n"]),
+                          dettaglio if not w["parziale"]
+                          else f"{dettaglio} · archivio più giovane della finestra",
+                          "text-warning" if w["parziale"] else "")
+            ui.label(
+                "«Nuovo» è la prima volta che l'abbiamo visto noi, non la data di "
+                "scoperta: nei cataloghi MPC e ASTORB quella data non c'è. "
+                + (f"L'oggetto più vecchio in archivio risale a {fmt_age(nuovi['catalog_age_days'])}; "
+                   f"l'ultimo arrivato a {fmt_age(nuovi['last_new_days'])}."
+                   if nuovi["catalog_age_days"] is not None else "Archivio vuoto.")
+            ).classes("text-xs opacity-60")
 
         sources_box.clear()
         with sources_box:

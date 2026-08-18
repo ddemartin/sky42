@@ -275,14 +275,30 @@ def run_windows(n_nights: int | None = None, block: int | None = None,
 
 
 def _prune(conn) -> int:
-    """Toglie le finestre delle notti passate. `julianday` da entrambe le parti."""
+    """Toglie le finestre che non descrivono più niente: notti passate e setup
+    usciti di servizio.
+
+    Le due potature sembrano indipendenti e non lo sono: il job **salta** i
+    setup inattivi invece di ricalcolarli, quindi senza la seconda le righe
+    scritte ieri — quando quel setup era ancora attivo — restano per le notti di
+    oggi e di domani, e ci restano **per sempre**, perché nessuno le riscriverà
+    mai. Un telescopio andato offline continuava a comparire in `/stanotte` con
+    le sue finestre di ieri (T17 a Siding Spring, 14.724 righe): non è una
+    stima vecchia, è un invito a puntare uno strumento che non c'è.
+
+    `julianday` da entrambe le parti sulle date, che è la regola di casa.
+    """
     with transaction(conn):
         cur = conn.execute(
             """DELETE FROM observation_window WHERE night_id IN (
                    SELECT id FROM night
                    WHERE julianday(night_date) < julianday('now') - ?)""",
             (KEEP_NIGHTS_DAYS,))
-    return cur.rowcount
+        n_notti = cur.rowcount
+        cur = conn.execute(
+            """DELETE FROM observation_window WHERE setup_id IN (
+                   SELECT id FROM setup WHERE active = 0)""")
+    return n_notti + cur.rowcount
 
 
 def _window_block(conn, *, site: Site, sito: dict, setups: list[dict],

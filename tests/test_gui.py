@@ -59,6 +59,22 @@ async def test_catalogo_mostra_i_numeri(user: User, catalogo_minimo):
 
 
 @pytest.mark.module_under_test("gui.pages.home", "gui.pages.catalogo")
+async def test_catalogo_conta_gli_oggetti_nuovi(user: User, catalogo_minimo):
+    """Quanti ne sono comparsi da ieri, dalla settimana scorsa, dal mese scorso.
+
+    Appena importati sono tutti nuovi in tutte e tre le finestre, ed è proprio il
+    caso che la pagina deve saper spiegare invece di far passare l'età del
+    database per una notizia astronomica.
+    """
+    await user.open("/catalogo")
+    await user.should_see("Oggetti nuovi in catalogo")
+    await user.should_see("ultime 24 ore")
+    await user.should_see("ultimi 30 giorni")
+    await user.should_see("archivio più giovane della finestra")
+    await user.should_see("non la data di scoperta")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.catalogo")
 async def test_catalogo_regge_il_database_vuoto(user: User, db):
     """Al primo avvio non c'è niente: la pagina deve dirlo, non rompersi."""
     await user.open("/catalogo")
@@ -267,6 +283,61 @@ async def test_stanotte_si_disegna_con_la_catena_accesa(user: User, sito_e_scree
     # L'età dei lavori sta in cima: una classifica su finestre di tre giorni fa
     # è sbagliata in un modo che non si vede guardando le righe.
     await user.should_see("finestre")
+    # I filtri e la ricerca fanno parte della pagina, non di una sotto-pagina.
+    await user.should_see("cerca: nome o designazione…")
+    await user.should_see("Altri filtri")
+    await user.should_see("classe orbitale")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.stanotte")
+async def test_stanotte_dice_quando_e_l_elenco_a_finire(user: User, sito_e_screening):
+    """«Fine dell'elenco» e non il silenzio: un elenco che finisce esattamente
+    su un multiplo di venti è indistinguibile da un pulsante che non ha
+    funzionato.
+
+    Il punteggio si mette a mano: gli oggetti finti non sono per forza utili
+    nella notte in cui gira la suite, e senza punteggio non c'è nessun elenco da
+    far finire. Il ranking ha i suoi test.
+    """
+    from core.db import connect
+    from services import night_service, radar_service, window_service
+
+    night_service.plan_nights(2)
+    window_service.run_windows(n_nights=1)
+    radar_service.run_radar()
+    conn = connect()
+    try:
+        conn.execute("UPDATE observation_window SET score=0.8, grade='PRIME', "
+                     "useful_hours=3.0")
+    finally:
+        conn.close()
+
+    await user.open("/stanotte")
+    await user.should_see("fine dell'elenco")
+    await user.should_see("hanno una finestra utile stanotte")
+
+
+@pytest.mark.module_under_test("gui.pages.home", "gui.pages.catalogo",
+                               "gui.pages.stanotte")
+async def test_la_fascetta_porta_alle_altre_pagine(user: User, catalogo_minimo):
+    """Le scorciatoie in intestazione, come in stock42: passare dalla home per
+    andare da una funzione all'altra è un giro in più su un gesto che si fa
+    venti volte a sera.
+
+    Si verifica che i link *ci siano* e che le funzioni con `route=None` restino
+    fuori — un pulsante che non porta da nessuna parte insegna solo a non
+    fidarsi della barra. La navigazione vera no: `ui.navigate.to` sta su un
+    pulsante con dentro icona ed etichetta, e il click simulato di NiceGUI
+    colpisce l'etichetta, non il pulsante.
+    """
+    await user.open("/catalogo")
+    await user.should_see("Stanotte")
+    await user.should_see("Osservatori")
+    await user.should_see("Candidati MPC")
+    await user.should_not_see("Returning radar")   # route=None: non è un link
+    # Sulla home no: lì l'elenco delle funzioni *è* la pagina.
+    await user.open("/")
+    await user.should_see("console di follow-up del Sistema Solare")
 
 
 def test_il_link_alla_scheda_usa_il_parametro_giusto_e_codifica():

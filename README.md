@@ -80,6 +80,7 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | import CometEls | ✅ | 954 comete, con le iperboliche trattate come tali |
 | Tisserand e derivati orbitali | ✅ | calcolati all'import, indicizzati |
 | pagina Catalogo (quanti, quando, distribuzioni) | ✅ | `/catalogo`, con aggiornamento in un processo separato |
+| oggetti nuovi in catalogo (24 h, 7 giorni, 30 giorni) | ✅ | da `target.created_at`, l'unica data di primo avvistamento che esista: né MPCORB né ASTORB pubblicano la data di scoperta. Una finestra più lunga dell'archivio è marcata come tale — `target` è rigenerabile |
 | riga di comando (`ingest`, `stato`, `siti`, `effemeride`, `screening`, `radar`, `finestre`, `candidati`) | ✅ | gli stessi moduli dell'interfaccia |
 | pianificatore dei lavori automatici | ✅ | `/pianificatore`: cadenze, prossimo giro, esito, esegui-ora |
 | popolazione monitorata configurabile | ✅ | regole dichiarative in `setting.screening_selectors`: Tj, H, q, classe, CEU, watchlist, liste a mano. Aggiungerne una non è una modifica al codice |
@@ -89,7 +90,11 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | backup delle tabelle non rigenerabili | ✅ | kilobyte, non il gigabyte di catalogo che si riscarica |
 | manutenzione settimanale | ✅ | pota i registri, riallinea le statistiche degli indici |
 | reconcile dei siti (sito/telescopio/camera/setup) | ✅ | dagli YAML al database, idempotente; scala e campo derivati dalla focale, mai scritti a mano |
+| rename dichiarato dell'hardware (`previous_codes:`) | ✅ | correggere un `code` rinomina la riga sul posto invece di dismetterla e ricrearla: l'`id` resta, e con lui `setup_calibration`, `observation_log` e `state_transition`. Senza, un rename riportava il `vlim_ref` dichiarato sopra quello misurato, in silenzio |
 | pagina Osservatori | ✅ | `/osservatori`: hardware, derivati ottici e limiti, con riallineamento dai file |
+| rete iTelescope (10 telescopi, 4 siti) | ✅ | T11/T21/T25 a Utah, T17/T30/T32/T59 a Siding Spring, T24 ad Auberry, T72/T73 in Cile. Ottica e camere dalle **schede di supporto** per singolo telescopio, che portano la data di modifica: il foglio di rete è del 2022 e il listino è indietro sulle camere. La scala derivata coincide con quella pubblicata su ogni telescopio |
+| età delle specifiche hardware (`specs_checked_at`) | ✅ | badge in `/osservatori`: da quanto non si rilegge la scheda del fornitore, scala in mesi. `NULL` = mai verificata, che è diverso da vecchia |
+| link alle pagine nell'intestazione | ✅ | come in stock42: le funzioni già costruite raggiungibili da ogni pagina, senza ripassare dalla home. Le voci `route=None` restano fuori |
 | solutore di Keplero vettoriale | ✅ | `core/orbits/kepler.py`: 14.000 orbite × 730 giorni in 2,4 s; verità contro Horizons su quattro coniche |
 | fotometria H-G e cometaria | ✅ | `core/orbits/photometry.py`: V di Cerere e Faetonte a 0.00 mag da Horizons |
 | positioner: RA/Dec/Δ/r/V/moto | ✅ | `core/orbits/positioner.py`: astrometrico geocentrico, tempo luce, residuo 0.008″ |
@@ -107,6 +112,8 @@ salvata sempre con la sua scomposizione (airmass, Luna, crepuscolo, trailing).
 | confronto automatico dei siti | ✅ | `BEST SITE TONIGHT` in `/stanotte`, e il confronto per oggetto dentro la riga — compresi i setup da cui **non** si vede. `BEST SITE NOW` resta di M2 |
 | ranking a pesi trasparenti | ✅ | `core/ranking/`: dieci feature 0-1 in due gruppi, pesi da `scoring_profile`, `score_json` sempre accanto allo score |
 | dashboard: Tonight / Coming into range / Tj < 3 | ✅ | `/stanotte`: tre sezioni per tre orizzonti (stanotte, le settimane, gli anni). È una query, non un calcolo, e ha il suo gemello JSON in `/api/stanotte` |
+| filtri e ricerca in tempo reale su Stanotte | ✅ | tipo, classe orbitale, giudizio, Tj, incertezza, «non osservato da», altezza, V, margine, durata — vocabolario **chiuso**, mai SQL dalla pagina. I filtri scelgono anche *quale setup* vince, ma il confronto fra siti resta intero (regola 5). Gli stessi nomi in `/api/stanotte` |
+| elenchi a scorrimento ("mostra altri 20") | ✅ | tutte e tre le sezioni di `/stanotte`: il migliore per oggetto lo fa `row_number()` in SQL, quindi `OFFSET` è esatto e non salta né ripete righe |
 | propositi osservativi e sessioni | ✅ | `/programma`: dal suggerimento alla decisione, e il registro di cosa si è ripreso. Un proposito scade da solo quando l'occasione passa, **con il motivo**: sceso sotto il limite, o niente finestra da quel sito |
 | trailing ed esposizione consigliata | ✅ | `n × t`, con la posa massima dettata da traccia e pixel |
 | incertezza posizionale vs campo, mosaico | ✅ | 3σ di CEU contro il lato corto del campo; CEU propagata a oggi in `target_stats.ceu_now_arcsec` |

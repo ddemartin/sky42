@@ -2469,6 +2469,276 @@ destini scritti, 2 propositi aperti. 367 test.
 
 ---
 
+## 2026-08-17 (notte) — la console si guida: fascetta, filtri, e l'elenco che non finisce a venti
+
+Tre lavori piccoli che vengono dallo stesso reclamo: la pagina Stanotte era
+**una classifica da leggere**, non uno strumento da usare.
+
+**La fascetta.** I link alle funzioni sono in intestazione, come in stock42.
+Non è una scorciatoia estetica: da Stanotte si va su Oggetto, da Oggetto su
+Programma, da Programma di nuovo su Stanotte — venti volte a sera — e ogni
+passaggio faceva tappa dalla home. Le voci con `route=None` restano fuori: un
+pulsante che non porta da nessuna parte insegna a non fidarsi della barra, che
+è il contrario di quello che serve a una barra. `active` si ricava dal
+sottotitolo che ogni pagina già passa, invece di farsi dire due volte la stessa
+cosa e lasciarle divergere; la voce attiva non naviga, o ricaricherebbe la
+rotta buttando via i filtri appena impostati. Sulla home la fascetta non
+compare: lì l'elenco delle funzioni **è** la pagina.
+
+**Gli oggetti nuovi in Catalogo.** «Quanti ne sono comparsi nelle ultime 24 ore,
+7 giorni, 30 giorni» si risponde con `target.created_at`, che l'upsert scrive al
+primo incontro e l'`ON CONFLICT DO UPDATE` non tocca mai più. È l'**unica** data
+di primo avvistamento che abbiamo: né MPCORB né ASTORB pubblicano una data di
+scoperta. Serve un indice, e la prima versione ne aveva uno inutile: `idx_target_created`
+sul solo `created_at`, con la soglia scritta come `julianday(created_at) >
+julianday('now') - ?`. Una funzione sulla colonna, quindi indice ignorato e 1,5
+milioni di righe lette lo stesso — **1,37 s misurati** sul catalogo vero.
+Corretto con `idx_target_created_kind` (migrazione 7, coprente: la domanda è
+sempre «quanti asteroidi e quante comete») e la soglia calcolata in Python:
+**0,40 s**.
+
+E sì, quella soglia si confronta *come testo*, che è l'eccezione alla regola di
+CLAUDE.md sulle date in SQL — vale la pena dire perché non è una violazione. La
+regola nasce dal confronto fra i nostri `2026-08-15T07:46:00Z` e i
+`2026-08-15 10:46:52` di `datetime('now')`, dove la `'T'` viene dopo lo spazio e
+nessuna riga risulta mai vecchia. Qui entrambe le parti escono da `iso_from_jd`,
+cioè dalla stessa funzione che scrive la colonna: stesso formato, lunghezza
+fissa, ordine lessicografico uguale a quello cronologico. La regola vieta di
+confrontare **due formati diversi**, non di usare l'unica forma che un indice
+sappia leggere.
+
+Il punto delicato è che `target` è **rigenerabile** (regola 1): un database
+ricostruito da zero ha tutti i `created_at` al giorno del ripristino e
+direbbe «1.558.058 oggetti nuovi nelle ultime 24 ore». La misura non è
+sbagliata, è la misura di un'altra cosa. Quindi esce anche l'età dell'archivio,
+e ogni finestra più lunga dell'archivio è marcata `parziale` e la pagina lo
+scrive. **Ed è il caso di adesso, sul servizio vero:** il database sta in un
+volume Docker dal 17 agosto, l'archivio ha 23 ore, e tutte e tre le finestre
+riportano 1.558.163 oggetti «nuovi» — con l'avviso accanto. La misura non è
+sbagliata: è la misura di un'altra cosa, e la pagina lo dice. **Alternativa scartata:** dedurre le novità dal confronto fra due
+`catalog_version` successive. Racconterebbe gli scaricamenti e non i dati — lo
+stesso errore già pagato con il badge di freschezza (voce del 15 agosto) — e
+non funzionerebbe affatto per un import da file locale.
+
+**I filtri e la ricerca su Stanotte.** Vocabolario **chiuso**, `_FILTRI`: la
+pagina passa un dizionario di valori e il servizio compone l'SQL. Stessa regola
+di `setting.screening_selectors`, e a maggior ragione quando la sorgente è una
+casella di testo. Un filtro con un nome sconosciuto **solleva**: se si saltasse
+in silenzio, una pagina che scrive `tisserand_massimo` mostrerebbe la lista
+intera e sembrerebbe funzionare, che è il modo peggiore di sbagliare.
+
+Due decisioni che si vedono solo all'uso:
+
+* i filtri agiscono sulla **scelta della finestra**, non solo sull'elenco: con
+  «altezza almeno 40°» esce il setup migliore *fra quelli che superano i 40°*,
+  che è la domanda che si stava facendo. Ma il confronto fra siti accanto alla
+  riga resta **senza filtri**, o diventerebbe un elenco di sole buone notizie —
+  ed è esattamente la regola 5 al contrario;
+* un filtro esclude anche chi il dato non ce l'ha, perché in SQL `NULL < 3` è
+  NULL. È voluto — non si risponde di sì a una domanda su un numero che manca —
+  ma vuol dire che una lista si può accorciare per **assenza di dato** invece
+  che per merito, e la pagina lo scrive sotto i filtri invece di lasciarlo
+  scoprire.
+
+La ricerca è in tempo reale con `debounce=300` e i controlli si costruiscono
+**una volta sola**: un campo ricreato a ogni ridisegno perde fuoco e cursore, e
+la ricerca istantanea diventa una lettera per volta.
+
+**L'elenco a venti.** Restava il numero buono per il primo colpo d'occhio ma era
+diventato un tetto: 14.730 finestre e la ventunesima non esisteva. Adesso venti
+righe e «mostra altri venti», su tutte e tre le sezioni. Per farlo, il
+«migliore per oggetto» è passato da un dizionario Python a `row_number() OVER
+(PARTITION BY target_id)` in SQL. La vecchia versione prendeva `limit × 4`
+righe sperando bastassero a coprire `limit` oggetti distinti: una stima, con la
+finestra dello stesso oggetto ripetuta una volta per setup, e soprattutto un
+conto che **non si sa spostare in avanti**. `OFFSET` su un insieme già ridotto a
+una riga per oggetto è esatto.
+
+E «mostra di più» alza il limite e **ricarica da capo** invece di chiedere la
+sola pagina successiva e attaccarla in fondo: fra un click e l'altro può girare
+un job della notte, e due pagine prese da classifiche diverse si sovrappongono e
+si saltano righe senza dirlo. Venti righe in più costano una query; la coerenza
+dell'elenco no.
+
+Ultimo dettaglio, piccolo e già costato altrove: quando l'elenco finisce si
+scrive **«fine dell'elenco»**. Senza quella riga, un elenco che si chiude
+esattamente su un multiplo di venti è indistinguibile da un pulsante che non ha
+funzionato.
+
+I menù dei filtri si riempiono con quello che c'è **stanotte**
+(`tonight_facets`), non con tutto il catalogo: scegliere una classe orbitale che
+stanotte non ha nemmeno un oggetto darebbe una lista vuota indistinguibile da un
+guasto.
+
+---
+
+## 2026-08-18 — un'identità che si può editare non è un'identità (`previous_codes`)
+
+Notato guardando la pagina Osservatori: c'era un osservatorio «dismesso» che non
+era dismesso affatto. Avevo corretto il suo `code` da `australia-siding-spring`
+a `australia-sso`, e il reconcile aveva fatto l'unica cosa che sapeva fare —
+l'assenza dallo YAML significa dismissione (regola 3) — mettendo `active = 0` e
+un `valid_to: 2026-08-18` che racconta una chiusura mai avvenuta.
+
+**Il `valid_to` falso però è il sintomo cosmetico.** Il danno vero sta un
+livello sotto, e non si vede: `_has_calibration` cerca il setup **per `code`**.
+Dopo un rename non trova più le misure, il guard non scatta, e il `vlim_ref`
+*dichiarato* nello YAML torna a comandare su quello tarato sul campo. In
+silenzio. Quel guard esiste apposta — «riportare il file sopra la calibrazione
+significherebbe buttare via ogni notte di taratura al primo `git pull`» — e un
+rename lo aggirava. Con `vlim_ref` che regge V_ref, tutti gli stati del radar e
+la distillazione dello screening (domanda aperta 5), mezza magnitudine
+riportata indietro sposta le date di rientro di settimane.
+
+Stessa frattura, meno grave, su `observation_log` e `state_transition`: puntano
+a `setup(id)` senza CASCADE, quindi la storia non si perde — ma lo strumento
+diventa **due righe**, e «quante ore ho fatto con l'RC700» smette di avere una
+risposta sola.
+
+Il momento per accorgersene era questo: `setup_calibration` e
+`observation_log` hanno zero righe. Fra una settimana di osservazioni sarebbe
+stata una diagnosi invece di una correzione.
+
+**La scelta:** `previous_codes:` nello YAML. Un rename diventa un atto
+dichiarato, e il reconcile fa `UPDATE ... SET code=?` sulla riga che c'è invece
+di crearne una nuova. L'id sopravvive, e con l'id tutto ciò che ci punta.
+`_apply_rename` gira **prima** dell'upsert (dopo, il codice nuovo esisterebbe
+già) e in particolare prima di `_has_calibration`, che è il punto.
+
+Due controlli in validazione, e nessuno dei due è pedanteria: un codice non può
+essere insieme il vecchio nome di una riga e il nome attuale di un'altra (sarebbe
+far cambiare identità all'hardware di qualcun altro), e lo stesso vecchio codice
+non lo possono reclamare in due (la riga è una).
+
+**Alternative scartate.**
+
+*Un file dei dismessi*, che era la proposta di partenza: l'assenza smette di
+significare dismissione, e si dichiara la chiusura in un file suo. Da solo
+**peggiora** il caso rename invece di risolverlo — il vecchio codice non diventa
+fantasma-inattivo, diventa fantasma-**attivo**: resta nel database con i suoi
+dati, continua a produrre finestre e a comparire in `BEST SITE TONIGHT`, e
+nessuno YAML lo descrive più. Meglio una riga morta che una riga viva che
+nessuno controlla. Vale anche la pena notare che la dismissione esplicita esiste
+già ed è quella documentata dalla regola 3: `active: false` nello YAML.
+
+*Un `uid:` immutabile accanto a un `code` editabile*, cioè la risposta corretta
+da manuale: identità e etichetta separate, e il codice si rinomina quanto si
+vuole. Scartata per il costo — due campi da tenere allineati su cinque siti, e
+una migrazione che deve inventare gli uid per l'hardware già scritto — contro un
+beneficio che `previous_codes` dà quasi tutto. Se un giorno i siti diventassero
+venti, è lì che si torna.
+
+**`previous_codes` non è per i cambi di hardware, ed è il rovescio esatto del
+bug appena chiuso.** Le due cose si assomigliano e vanno tenute separate:
+
+* **rename** = la stessa cosa fisica, un'etichetta diversa. Ho scritto male il
+  codice, o ho cambiato convenzione. → `previous_codes`, e la riga si porta
+  dietro le sue misure perché *sono* le sue misure.
+* **sostituzione** = una cosa fisica diversa. Cambio la camera sul telescopio,
+  monto un riduttore, passo a bin 1. → **codice nuovo**, e il vecchio setup va
+  ad `active: false` con il suo `valid_to` (regola 3). Non è un rename, è un
+  altro strumento.
+
+Sbagliare in questa direzione costa più del bug che `previous_codes` risolve.
+Se un cambio camera venisse dichiarato come rename, `_has_calibration`
+troverebbe la calibrazione della *vecchia* combinazione e la terrebbe: un
+`vlim_ref` misurato su una camera che non c'è più, applicato in silenzio a
+un'altra, e con lui V_ref, gli stati del radar e le date di rientro. Il bug di
+stamattina riportava indietro un numero misurato a uno dichiarato — sgradevole
+ma conservativo. Questo terrebbe un numero misurato **sull'hardware sbagliato**,
+che sembra un dato buono e non lo è.
+
+La regola pratica: se cambia qualcosa che sta in `derive_optics` o davanti al
+sensore, è un setup nuovo. Se cambia solo come lo chiami, è un rename. Detto in
+altro modo: `previous_codes` si usa quando la risposta a «con quale campo era
+stata presa quell'immagine» **non cambia**.
+
+**Il caso del rename non dichiarato resta.** Se il codice si edita *senza*
+`previous_codes`, il giro successivo crea la riga nuova e disattiva la vecchia,
+e a quel punto lo strumento è già diviso in due. Aggiungere la dichiarazione
+dopo non le rifonde: quale id sopravvive è una domanda con conseguenze su tre
+tabelle di storia, e non la può decidere il reconcile. Esce in
+`report["rinomine_tardive"]` con un warning nel log — il fantasma si nomina,
+invece di restare lì in silenzio, che è la sola cosa onesta da fare.
+
+---
+
+## 2026-08-18 — dieci telescopi, tre fonti che si contraddicono, e un setup spento che continuava a comparire
+
+La rete iTelescope entra nel progetto: dieci telescopi su quattro siti. Il
+lavoro vero non è stato scrivere gli YAML, è stato capire **a quale fonte
+credere**, e la risposta è cambiata due volte.
+
+**Prima fonte, il foglio di rete condiviso.** Dà tutto — apertura, focale,
+camera, pixel, array — ed è **del 2022**. Vecchio in tutte e due le direzioni:
+tiene T31 (venduto a un privato, fuori rete) e non ha T25 né T73.
+
+**Seconda, il listino `/telescope-rates-premium`.** Dice chi è ancora a
+listino, che è l'informazione che il foglio non può avere. Ma sulle camere è
+già indietro: dà l'Apogee U16M su T24.
+
+**Terza, le schede di supporto per singolo telescopio** — e sono l'autorità.
+Portano la **data di ultima modifica**, che è la ragione per cui vincono: quella
+di T24 è del 5 agosto 2026 e dice Player One Zeus 455M Pro. Danno anche cose che
+nessun altro ha: codici MPC (Deep Sky Chile è **X07**), coordinate in
+sessagesimali, pose massime consigliate (T17 240 s, T30 300 s, T59 900 s) e i
+profili d'orizzonte per direzione — T59 arriva a 11° a sud ma vuole 37° a est.
+
+Il controllo che chiude il cerchio: la scala che `derive_optics` calcola da
+focale, pixel e binning **coincide con quella pubblicata** su ogni telescopio —
+T24 0.39″ contro 0.395″, T25 0.45″ contro 0.45″, T17 e T32 0.53″ contro 0.531″.
+Non abbiamo copiato il campo: lo abbiamo derivato, e torna. Era il senso della
+regola «scala e campo sono derivati, mai letti dal file».
+
+**Il costo di aver creduto alla fonte sbagliata** non è teorico. T17 e T32
+montano una ZWO ASI6200MM al posto delle vecchie FLI: 3.76 µm contro 9 µm,
+9576×6388 contro 4096×4096. Con il dato del 2022 avremmo deciso i mosaici su un
+campo sbagliato di un fattore due. E la camera giusta di T24 e T25 era quella
+che Davide aveva già scritto a mano: l'ho sovrascritta due volte, prima con il
+foglio e poi con il listino.
+
+### Il bug: un setup fuori servizio continuava a comparire
+
+Mettendo T17 a `active: false` (offline da mesi, tenuto in anagrafica) è saltato
+fuori che **`_prune` toglieva solo le finestre delle notti passate**. Il job
+`windows` **salta** i setup inattivi invece di ricalcolarli — che è giusto — ma
+le righe scritte il giorno prima, quando quel setup era attivo, restavano per le
+notti di oggi e domani. E ci restavano **per sempre**, perché nessuno le
+riscrive più: 14.724 finestre di un telescopio spento, in classifica, a invitare
+a pianificare una notte su uno strumento che non c'è.
+
+Le due potature sembrano indipendenti e non lo sono: *saltare* invece di
+*ricalcolare* è precisamente ciò che rende necessaria la seconda. Vale come
+regola generale — ogni volta che un job filtra l'input invece di riscrivere
+tutto, qualcuno deve togliere l'output vecchio.
+
+### `specs_checked_at`: l'età di una specifica è parte della specifica
+
+Da qui viene il campo nuovo (migrazione 8), che è la stessa idea già applicata
+ai cataloghi e alla dashboard: **un numero vecchio non si distingue da uno
+giusto guardando il numero.** iTelescope non ha una pagina sola aggiornata — le
+specifiche si trovano saltando fra tre fonti — quindi la domanda non è «sono
+giuste» ma «da quanto non le rileggo». Il badge sta accanto al nome del sito in
+`/osservatori`, con la scala in **mesi** e non in giorni: trenta giorni su un
+catalogo orbitale è rosso, su un telescopio è verde. Sei mesi è la soglia oltre
+la quale conviene rifare il giro.
+
+**È una data di verifica, non di modifica del file.** Si tocca solo quando
+qualcuno è andato davvero a rileggere la scheda: correggere un commento non
+ringiovanisce niente. E `NULL` è «mai verificata», che è diverso da «vecchia» —
+Namibia e Spagna stanno così, e la pagina lo scrive.
+
+### Due cose tenute ferme di proposito
+
+`iTelescopeT17-bin2` (offline da mesi) e `hakos-cdk17-C5-100A-bin2` (previsto,
+non ancora installato) esistono in anagrafica con `active: false`. Non
+producono finestre e non entrano in `BEST SITE TONIGHT` — pianificare su uno
+strumento che non c'è è peggio che non averlo — ma tornano con un flag. È la
+regola 3 usata per quello che serve: non un archivio di dismissioni, ma la
+differenza fra «non ce l'ho» e «non ce l'ho **adesso**».
+
+---
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.

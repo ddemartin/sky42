@@ -13,7 +13,8 @@ import logging
 from nicegui import run, ui
 
 from core.sites.reconcile import SiteConfigError
-from gui.layout import cols, fmt_age, fmt_num, header, table
+from core.timeutil import days_since
+from gui.layout import (cols, fmt_age, fmt_num, header, specs_color, table)
 from services import night_service as notti
 from services import sites_service as sites
 
@@ -181,6 +182,17 @@ def osservatori_page() -> None:
                             ui.badge("dismesso").props("color=negative")
                         if sito["mpc_code"]:
                             ui.badge(f"MPC {sito['mpc_code']}").props("color=primary outline")
+                        # Da quanto non si rilegge la scheda del fornitore. Sta
+                        # qui accanto al nome e non in fondo, per la stessa
+                        # ragione per cui l'età dei cataloghi sta in cima a
+                        # /stanotte: un numero vecchio non si distingue da uno
+                        # giusto guardando il numero.
+                        eta = days_since(sito.get("specs_checked_at"))
+                        ui.badge("specifiche " + (fmt_age(eta) if eta is not None
+                                                  else "mai verificate")) \
+                            .props(f"color={specs_color(eta)} outline") \
+                            .tooltip("Quando si è riletta l'ultima volta la scheda "
+                                     "del fornitore. L'hardware cambia senza avvisare.")
                         ui.space()
                         ui.label(_coord(sito["latitude"], sito["longitude"])) \
                             .classes("text-sm opacity-80")

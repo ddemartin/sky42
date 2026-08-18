@@ -103,6 +103,63 @@ def counts() -> dict:
     }
 
 
+# Le tre finestre di «da quando è comparso». Un giorno perché i sync girano
+# ogni sei ore e una giornata è il passo con cui il catalogo cambia davvero;
+# una settimana e un mese perché è la scala su cui l'MPC pubblica le nuove
+# designazioni in blocco dopo le campagne di survey.
+NEW_WINDOWS = [("ultime 24 ore", 1.0), ("ultimi 7 giorni", 7.0),
+               ("ultimi 30 giorni", 30.0)]
+
+
+def new_objects() -> dict:
+    """Quanti oggetti sono **comparsi in catalogo** nelle tre finestre recenti.
+
+    «Nuovo» qui vuol dire *la prima volta che l'abbiamo visto noi*, non la data
+    di scoperta: `target.created_at` la scrive l'upsert al primo incontro e
+    l'`ON CONFLICT DO UPDATE` non la tocca mai più, quindi sopravvive a tutti i
+    reimport successivi. È l'unica data di primo avvistamento che abbiamo — nei
+    cataloghi MPC/ASTORB non ce n'è una.
+
+    E per questo esce anche `catalog_age_days`: `target` è **rigenerabile**
+    (regola 1), quindi un database ricostruito da zero ha tutti i `created_at`
+    al giorno del ripristino e direbbe «1,5 milioni di oggetti nuovi». Una
+    finestra più lunga dell'archivio è marcata `parziale`, e la pagina lo dice
+    invece di far passare un artefatto per una notizia astronomica. (Sul
+    servizio vero è il caso di adesso: il database sta in un volume Docker dal
+    17 agosto, e tutto ciò che contiene è «nuovo» da allora.)
+
+    **La soglia si calcola in Python e si confronta come testo**, che è
+    l'eccezione alla regola di CLAUDE.md sulle date in SQL — e vale la pena
+    dire perché non è una violazione. La regola nasce dal confronto fra i nostri
+    `2026-08-15T07:46:00Z` e i `2026-08-15 10:46:52` di `datetime('now')`, dove
+    la `'T'` viene dopo lo spazio e ogni riga sembra recente. Qui entrambe le
+    parti escono da `iso_from_jd`, cioè dalla stessa funzione che scrive la
+    colonna: stesso formato, lunghezza fissa, ordine lessicografico uguale
+    all'ordine cronologico. Ed è l'unica forma che l'indice sappia usare —
+    `julianday(created_at)` è una funzione sulla colonna, e obbliga a leggere
+    tutte e 1,5 milioni di righe (misurato: 1,37 s).
+    """
+    from core.timeutil import iso_from_jd, now_jd
+
+    adesso = now_jd()
+    estremi = _rows("SELECT min(created_at) AS primo, max(created_at) AS ultimo "
+                    "FROM target")[0]
+    eta = _age_days(estremi["primo"])
+    out = []
+    for label, giorni in NEW_WINDOWS:
+        soglia = iso_from_jd(adesso - giorni)
+        r = _rows(
+            """SELECT count(*) AS n,
+                      sum(kind = 'asteroid') AS asteroidi,
+                      sum(kind = 'comet') AS comete
+               FROM target WHERE created_at > ?""", (soglia,))[0]
+        out.append({"fascia": label, "giorni": giorni, "n": r["n"] or 0,
+                    "asteroidi": r["asteroidi"] or 0, "comete": r["comete"] or 0,
+                    "parziale": eta is not None and eta < giorni})
+    return {"windows": out, "catalog_age_days": eta,
+            "last_new_days": _age_days(estremi["ultimo"])}
+
+
 def tisserand_summary() -> dict:
     """La popolazione di punta, prima e dopo l'esclusione delle famiglie risonanti.
 

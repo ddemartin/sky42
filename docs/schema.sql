@@ -47,6 +47,12 @@ CREATE TABLE observatory (
     -- qualità del cielo: entra nel modello di brillanza, non è decorazione
     sky_zenith_mag  REAL NOT NULL DEFAULT 21.6, -- V mag/arcsec² in notte scura senza Luna
     extinction_k    REAL NOT NULL DEFAULT 0.16, -- mag/airmass in V
+    -- Quando si è riletta l'ultima volta la scheda del fornitore. iTelescope non
+    -- ha una pagina sola aggiornata: le specifiche si trovano saltando fra
+    -- listino, foglio condiviso e schede di supporto, e ognuna ha un'età sua.
+    -- Senza questa data non si sa **quando** rifare il giro, e ci si accorge che
+    -- una camera è cambiata trovando un campo sbagliato.
+    specs_checked_at TEXT,
     horizon_json    TEXT,                       -- opzionale [[az,alt],...]: alberi, muri, cupola
     valid_from      TEXT,
     valid_to        TEXT,                       -- NULL = ancora in uso
@@ -179,6 +185,11 @@ CREATE TABLE target (
 CREATE INDEX idx_target_number_kind ON target(number, kind);
 CREATE INDEX idx_target_desig_kind  ON target(primary_desig, kind);
 CREATE INDEX idx_target_kind        ON target(kind);
+-- «Quanti oggetti nuovi nelle ultime 24 ore, e di che tipo»: `created_at` è la
+-- sola data di primo avvistamento che abbiamo (l'upsert non la riscrive mai).
+-- `kind` sta dentro l'indice perché la domanda è sempre «quanti asteroidi e
+-- quante comete»: così il conteggio si risponde senza toccare la tabella.
+CREATE INDEX idx_target_created_kind ON target(created_at, kind);
 
 -- Elementi osculatori correnti, uno per target. Copre asteroidi (a, M) e
 -- comete (q, tp): i campi non pertinenti restano NULL.

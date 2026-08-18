@@ -90,7 +90,7 @@ _LIST_COLS = """
     t.primary_desig, t.display_name, t.kind, t.orbit_class,
     o.tisserand_j, o.h_mag,
     st.years_since_last_obs, st.years_since_good_apparition,
-    st.v_trend_mag_month, st.selectors,
+    st.v_trend_mag_month, st.selectors, st.ceu_now_arcsec,
     s.code AS setup_code, s.name AS setup_name,
     ob.code AS site_code, ob.name AS site_name, ob.timezone, n.night_date
 """
@@ -106,7 +106,63 @@ _LIST_JOINS = """
 """
 
 
-def tonight(limit: int = DEFAULT_LIMIT, grade_min: str | None = None) -> dict:
+# Il vocabolario **chiuso** dei filtri della sezione Stanotte: nome → (SQL,
+# quanti segnaposto). La pagina passa un dizionario di valori, mai un pezzo di
+# SQL — è la stessa regola di `setting.screening_selectors` (regola: mai SQL
+# nella configurazione), e vale a maggior ragione per una casella di testo.
+#
+# Attenzione a una cosa che non si vede: dove il dato manca, il confronto in SQL
+# è NULL e la riga **esce**. È voluto — «Tj sotto 3» non è una domanda a cui un
+# oggetto senza Tj risponda di sì — ma significa che accendere un filtro può
+# togliere righe per assenza di dato invece che per merito. La pagina lo scrive.
+_FILTRI = {
+    # identità
+    "q":                  ("(t.display_name LIKE ? OR t.primary_desig LIKE ?)", 2),
+    "kind":               ("t.kind = ?", 1),
+    # orbita: sono le domande del radar
+    "tisserand_max":      ("o.tisserand_j IS NOT NULL AND o.tisserand_j < ?", 1),
+    "ceu_max_arcsec":     ("st.ceu_now_arcsec IS NOT NULL AND st.ceu_now_arcsec <= ?", 1),
+    "unobserved_min_years": ("st.years_since_last_obs >= ?", 1),
+    "unobserved_max_years": ("st.years_since_last_obs <= ?", 1),
+    # fattibilità: sono le domande del telescopio
+    "alt_min_deg":        ("w.best_alt_deg >= ?", 1),
+    "v_max":              ("w.v_pred <= ?", 1),
+    "margin_min":         ("w.depth_margin >= ?", 1),
+    "useful_hours_min":   ("w.useful_hours >= ?", 1),
+}
+
+
+def _filters_sql(f: dict) -> tuple[str, list]:
+    """Da dizionario di filtri a `AND ...` e parametri. Chiavi ignote: errore.
+
+    Un filtro sconosciuto non si salta in silenzio: una pagina che chiede
+    `tisserand_massimo` invece di `tisserand_max` mostrerebbe la lista intera
+    e sembrerebbe funzionare, che è il modo peggiore di sbagliare.
+    """
+    pezzi, params = [], []
+    for chiave, valore in (f or {}).items():
+        if valore is None or valore == "" or valore == []:
+            continue
+        if chiave == "orbit_class":                  # lista: segnaposti variabili
+            classi = list(valore)
+            pezzi.append(f"t.orbit_class IN ({','.join('?' * len(classi))})")
+            params.extend(classi)
+            continue
+        if chiave == "grade_min":                    # idem, ma calcolata
+            ammessi = _grades_from(valore)
+            pezzi.append(f"w.grade IN ({','.join('?' * len(ammessi))})")
+            params.extend(ammessi)
+            continue
+        if chiave not in _FILTRI:
+            raise ValueError(f"filtro sconosciuto: {chiave}")
+        sql, n = _FILTRI[chiave]
+        pezzi.append(sql)
+        params.extend([f"%{valore}%"] * n if chiave == "q" else [valore] * n)
+    return ("".join(f" AND ({p})" for p in pezzi), params)
+
+
+def tonight(limit: int = DEFAULT_LIMIT, offset: int = 0,
+            filters: dict | None = None, grade_min: str | None = None) -> dict:
     """Cosa osservare stanotte, in ordine di punteggio, con il **sito migliore**.
 
     Una riga per oggetto — quella del setup da cui viene meglio — e accanto il
@@ -119,47 +175,64 @@ def tonight(limit: int = DEFAULT_LIMIT, grade_min: str | None = None) -> dict:
     tutte le finestre di quei soli oggetti per il confronto fra siti. Una query
     sola che portasse tutto ordinato per punteggio taglierebbe le alternative
     degli ultimi in classifica proprio mentre le si vuole mostrare.
+
+    Il «migliore per oggetto» lo fa `row_number()` in SQL e non un dizionario in
+    Python. La differenza conta solo da quando c'è `offset`: la vecchia versione
+    prendeva `limit × 4` righe sperando che bastassero a coprire `limit` oggetti
+    distinti — una stima, con quattro setup e un oggetto visibile da uno solo, e
+    soprattutto un conto che non si sa spostare in avanti. `OFFSET` su un
+    insieme già ridotto a una riga per oggetto è esatto, e «mostra altri venti»
+    non salta né ripete niente.
+
+    I filtri agiscono sulla **scelta della finestra**, non solo sull'elenco: con
+    «altezza minima 40°» esce il setup migliore *fra quelli che superano i 40°*,
+    che è la domanda che si stava facendo. Il confronto fra siti accanto alla
+    riga resta invece **senza filtri**: serve a dire da dove si poteva e da dove
+    no, e filtrarlo lo trasformerebbe in un elenco di sole buone notizie.
     """
     notti = current_nights()
     dove, params = _night_filter(notti)
+    vuoto = {"nights": [], "rows": [], "n_totali": 0, "n_disponibili": 0,
+             "offset": offset, "limit": limit, "has_more": False}
     if not notti:
-        return {"nights": [], "rows": [], "n_totali": 0}
+        return vuoto
 
-    filtro_grado = ""
-    if grade_min:
-        ammessi = _grades_from(grade_min)
-        filtro_grado = f" AND w.grade IN ({','.join('?' * len(ammessi))})"
+    f = dict(filters or {})
+    if grade_min:                     # compatibilità con la vecchia firma
+        f.setdefault("grade_min", grade_min)
+    cond, fparams = _filters_sql(f)
 
     conn = connect()
     try:
-        migliori = [dict(r) for r in conn.execute(
-            f"""SELECT {_LIST_COLS} {_LIST_JOINS}
-                WHERE ({dove}) AND w.score IS NOT NULL{filtro_grado}
-                ORDER BY w.score DESC, w.depth_margin DESC
-                LIMIT ?""",
-            (*params, *(_grades_from(grade_min) if grade_min else ()), limit * 4)
-        ).fetchall()]
+        n_disponibili = conn.execute(
+            f"""SELECT count(DISTINCT w.target_id) FROM observation_window w
+                WHERE ({dove}) AND w.score IS NOT NULL""", params).fetchone()[0]
+        n_totali = conn.execute(
+            f"""SELECT count(DISTINCT w.target_id) {_LIST_JOINS}
+                WHERE ({dove}) AND w.score IS NOT NULL{cond}""",
+            (*params, *fparams)).fetchone()[0]
 
-        # Il migliore per oggetto: le righe arrivano già ordinate per punteggio,
-        # quindi la prima che si incontra è quella. Si prendono più righe del
-        # necessario (limit × 4) perché lo stesso oggetto compare una volta per
-        # setup, e con quattro setup la ventesima riga non è il ventesimo oggetto.
-        per_target: dict[int, dict] = {}
-        for r in migliori:
-            per_target.setdefault(r["target_id"], r)
-        scelti = list(per_target.values())[:limit]
+        scelti = [dict(r) for r in conn.execute(
+            f"""SELECT * FROM (
+                    SELECT {_LIST_COLS},
+                           row_number() OVER (PARTITION BY w.target_id
+                                              ORDER BY w.score DESC,
+                                                       w.depth_margin DESC) AS rn
+                    {_LIST_JOINS}
+                    WHERE ({dove}) AND w.score IS NOT NULL{cond}
+                ) WHERE rn = 1
+                ORDER BY score DESC, depth_margin DESC
+                LIMIT ? OFFSET ?""",
+            (*params, *fparams, limit, offset)).fetchall()]
         if not scelti:
-            return {"nights": notti, "rows": [], "n_totali": 0}
+            return {**vuoto, "nights": notti, "n_disponibili": n_disponibili,
+                    "n_totali": n_totali}
 
         ids = [r["target_id"] for r in scelti]
         alternative = [dict(r) for r in conn.execute(
             f"""SELECT {_LIST_COLS} {_LIST_JOINS}
                 WHERE ({dove}) AND w.target_id IN ({','.join('?' * len(ids))})""",
             (*params, *ids)).fetchall()]
-
-        n_totali = conn.execute(
-            f"""SELECT count(DISTINCT w.target_id) FROM observation_window w
-                WHERE ({dove}) AND w.score IS NOT NULL""", params).fetchone()[0]
     finally:
         conn.close()
 
@@ -169,10 +242,50 @@ def tonight(limit: int = DEFAULT_LIMIT, grade_min: str | None = None) -> dict:
 
     righe = []
     for r in scelti:
+        r.pop("rn", None)
         siti = sorted(per_oggetto.get(r["target_id"], []),
                       key=lambda x: (-(x["score"] or -1), -(x["depth_margin"] or -99)))
         righe.append({**_leggibile(r), "sites": [_sito_breve(x) for x in siti]})
-    return {"nights": notti, "rows": righe, "n_totali": n_totali}
+    return {"nights": notti, "rows": righe, "n_totali": n_totali,
+            "n_disponibili": n_disponibili, "offset": offset, "limit": limit,
+            "has_more": offset + len(righe) < n_totali}
+
+
+def tonight_facets() -> dict:
+    """I valori che i filtri possono assumere **stanotte**, non in tutto il catalogo.
+
+    Un menù con le quaranta classi orbitali dell'MPC quando stanotte ce ne sono
+    sei è un menù in cui si cerca; e sceglierne una che stanotte non c'è dà una
+    lista vuota che sembra un guasto. Stessa ragione per i minimi e massimi:
+    servono a tarare i cursori su quello che esiste davvero.
+    """
+    notti = current_nights()
+    dove, params = _night_filter(notti)
+    if not notti:
+        return {"orbit_classes": [], "kinds": [], "ranges": {}}
+
+    conn = connect()
+    try:
+        classi = [r[0] for r in conn.execute(
+            f"""SELECT DISTINCT t.orbit_class {_LIST_JOINS}
+                WHERE ({dove}) AND w.score IS NOT NULL AND t.orbit_class IS NOT NULL
+                ORDER BY t.orbit_class""", params).fetchall()]
+        kinds = [r[0] for r in conn.execute(
+            f"""SELECT DISTINCT t.kind {_LIST_JOINS}
+                WHERE ({dove}) AND w.score IS NOT NULL ORDER BY t.kind""",
+            params).fetchall()]
+        r = conn.execute(
+            f"""SELECT min(w.v_pred) AS v_min, max(w.v_pred) AS v_max,
+                       min(w.best_alt_deg) AS alt_min, max(w.best_alt_deg) AS alt_max,
+                       max(w.useful_hours) AS ore_max,
+                       min(o.tisserand_j) AS tj_min, max(o.tisserand_j) AS tj_max,
+                       max(st.years_since_last_obs) AS oss_max,
+                       max(st.ceu_now_arcsec) AS ceu_max
+                {_LIST_JOINS} WHERE ({dove}) AND w.score IS NOT NULL""",
+            params).fetchone()
+    finally:
+        conn.close()
+    return {"orbit_classes": classi, "kinds": kinds, "ranges": dict(r)}
 
 
 def _grades_from(grade_min: str) -> tuple:
@@ -380,18 +493,26 @@ def freshness() -> dict:
     return {"jobs": {r["job_name"]: dict(r) for r in rows}, "n_finestre": n_finestre}
 
 
-def overview(limit: int = DEFAULT_LIMIT) -> dict:
+def overview(limit: int = DEFAULT_LIMIT, offset: int = 0,
+             filters: dict | None = None, coming_limit: int | None = None,
+             returns_limit: int | None = None) -> dict:
     """Le tre sezioni più il contesto, in una chiamata sola.
 
-    È quello che la pagina disegna e quello che l'endpoint JSON restituirà:
+    È quello che la pagina disegna e quello che l'endpoint JSON restituisce:
     una sola forma, o le due sorgenti divergono appena qualcuno tocca una query.
+
+    I filtri valgono per la **sola sezione Stanotte**: le altre due parlano di
+    settimane e di anni, e un filtro sull'altezza di stanotte non ha significato
+    su un oggetto che tornerà a portata fra tre mesi. Per questo hanno anche il
+    loro limite: «mostra altri venti» si fa una sezione alla volta.
     """
     return {
         "freshness": freshness(),
-        "tonight": tonight(limit),
+        "facets": tonight_facets(),
+        "tonight": tonight(limit, offset, filters),
         "best_sites": best_sites(),
-        "coming_into_range": coming_into_range(limit),
-        "returns": returns(limit),
+        "coming_into_range": coming_into_range(coming_limit or limit),
+        "returns": returns(returns_limit or limit),
     }
 
 

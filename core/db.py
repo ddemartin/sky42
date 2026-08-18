@@ -16,7 +16,7 @@ from core.timeutil import now_iso
 log = logging.getLogger("sky42.db")
 
 # Versione dello schema. Si alza quando si aggiunge una migrazione a MIGRATIONS.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 
 # Migrazioni successive alla prima creazione: {versione: [istruzioni SQL]}.
 # Devono essere idempotenti e non distruttive.
@@ -96,6 +96,29 @@ MIGRATIONS: dict[int, list[str]] = {
     5: [
         "ALTER TABLE setup ADD COLUMN cost_per_hour REAL",
         "ALTER TABLE setup ADD COLUMN currency TEXT",
+    ],
+    # 6 — «quanti oggetti nuovi da ieri». La risposta sta in `target.created_at`
+    # (la scrive l'upsert al primo incontro e non la tocca più), ma senza indice
+    # è una scansione di un milione e mezzo di righe a ogni apertura della
+    # pagina Catalogo.
+    6: [
+        "CREATE INDEX IF NOT EXISTS idx_target_created ON target(created_at)",
+    ],
+    # 7 — lo stesso indice, ma **coprente**: la domanda non è mai «quanti», è
+    # «quanti asteroidi e quante comete». Con `kind` dentro l'indice il conteggio
+    # si risponde senza toccare la tabella; con il solo `created_at` la finestra
+    # dei 30 giorni tornava a leggere un milione e mezzo di righe per sapere il
+    # tipo, e l'indice non serviva a niente (misurato: 1,37 s sul catalogo vero).
+    7: [
+        "CREATE INDEX IF NOT EXISTS idx_target_created_kind ON target(created_at, kind)",
+        "DROP INDEX IF EXISTS idx_target_created",
+    ],
+    # 8 — da quanto non si rilegge la scheda del fornitore. L'hardware non
+    # cambia ogni giorno, ma cambia senza avvisare: T24 ha cambiato camera e
+    # ce ne siamo accorti per caso, confrontando due fonti. L'età di un dato è
+    # parte del dato, come per i cataloghi.
+    8: [
+        "ALTER TABLE observatory ADD COLUMN specs_checked_at TEXT",
     ],
 }
 

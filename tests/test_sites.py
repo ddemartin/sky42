@@ -305,3 +305,196 @@ def test_un_file_rotto_non_scrive_niente(db, sites_dir):
     with pytest.raises(SiteConfigError):
         reconcile(sites_dir)
     assert _riga("SELECT count(*) AS n FROM observatory")["n"] == 0
+
+
+# --- i rename: un codice editato non è una dismissione ----------------------
+
+
+def test_un_rename_dichiarato_tiene_l_id_e_non_disattiva_niente(db, sites_dir):
+    """Il caso per cui `previous_codes` esiste.
+
+    Correggere un codice non deve produrre una riga morta con un `valid_to` che
+    racconta una dismissione mai avvenuta, più una riga nuova con un id nuovo.
+    L'id è quello a cui puntano `observation_log` e `state_transition`.
+    """
+    reconcile(sites_dir)
+    prima = _riga("SELECT id, valid_to FROM setup WHERE code='rc700-qhy600-bin2'")
+
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO)
+        .replace("  - code: rc700-qhy600-bin2",
+                 "  - code: cile-rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]"),
+        encoding="utf-8")
+    report = reconcile(sites_dir)
+
+    assert report["rinominati"] == ["setup:rc700-qhy600-bin2→cile-rc700-qhy600-bin2"]
+    assert report["disattivati"] == [], "un rename non dismette niente"
+    assert report["creati"] == [], "e non fa nascere niente"
+
+    dopo = _riga("SELECT id, active, valid_to FROM setup WHERE code='cile-rc700-qhy600-bin2'")
+    assert dopo["id"] == prima["id"], "l'id è cambiato: la storia punta altrove"
+    assert dopo["active"] == 1 and dopo["valid_to"] is None
+    assert _riga("SELECT id FROM setup WHERE code='rc700-qhy600-bin2'") is None
+
+
+def test_un_rename_non_stacca_la_calibrazione(db, sites_dir):
+    """Il danno vero, e quello che non si vedeva: `_has_calibration` cerca per
+    `code`. Dopo un rename non trovava più le misure, e il `vlim_ref`
+    **dichiarato** tornava a comandare su quello tarato sul campo — in silenzio,
+    che è il modo peggiore di perdere una notte di taratura."""
+    reconcile(sites_dir)
+    conn = connect()
+    try:
+        sid = conn.execute(
+            "SELECT id FROM setup WHERE code='rc700-qhy600-bin2'").fetchone()["id"]
+        conn.execute(
+            """INSERT INTO setup_calibration (setup_id, measured_at, exposure_s, faintest_mag)
+               VALUES (?, '2026-08-16T03:00:00Z', 120, 20.7)""", (sid,))
+        conn.execute("UPDATE setup SET vlim_ref=20.7 WHERE id=?", (sid,))
+    finally:
+        conn.close()
+
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO)
+        .replace("  - code: rc700-qhy600-bin2",
+                 "  - code: cile-rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]"),
+        encoding="utf-8")
+    report = reconcile(sites_dir)
+
+    assert report["vlim_tenuti"] == ["cile-rc700-qhy600-bin2"]
+    # 20.7 misurato, non 21.3 dichiarato nello YAML.
+    assert _riga("SELECT vlim_ref FROM setup WHERE code='cile-rc700-qhy600-bin2'"
+                 )["vlim_ref"] == 20.7
+
+
+def test_si_rinomina_anche_un_osservatorio_e_i_figli_lo_seguono(db, sites_dir):
+    reconcile(sites_dir)
+    prima = _riga("SELECT id FROM observatory WHERE code='cile-test'")["id"]
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "code: cile-test",
+            "code: cile-rio-hurtado\nprevious_codes: [cile-test]", 1),
+        encoding="utf-8")
+    report = reconcile(sites_dir)
+
+    assert report["rinominati"] == ["observatory:cile-test→cile-rio-hurtado"]
+    o = _riga("SELECT id FROM observatory WHERE code='cile-rio-hurtado'")
+    assert o["id"] == prima
+    # I telescopi non sono stati staccati e riattaccati: puntano allo stesso id.
+    assert _riga("SELECT observatory_id FROM telescope WHERE code='rc700'"
+                 )["observatory_id"] == prima
+
+
+def test_il_rename_e_idempotente(db, sites_dir):
+    """Il secondo giro non trova più il vecchio codice, e non deve fare niente."""
+    yaml_rinominato = textwrap.dedent(SITO).replace(
+        "  - code: rc700-qhy600-bin2",
+        "  - code: cile-rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]")
+    reconcile(sites_dir)
+    (sites_dir / "cile.yml").write_text(yaml_rinominato, encoding="utf-8")
+    reconcile(sites_dir)
+    report = reconcile(sites_dir)
+    assert report["rinominati"] == [] and report["aggiornati"] == []
+    assert report["disattivati"] == [] and report["creati"] == []
+
+
+def test_un_database_vuoto_con_gli_yaml_gia_rinominati(db, sites_dir):
+    """`previous_codes` che punta a una riga mai esistita è normale, non un
+    errore: succede a chi ricrea il database da zero (regola 1)."""
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "  - code: rc700-qhy600-bin2",
+            "  - code: cile-rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]"),
+        encoding="utf-8")
+    report = reconcile(sites_dir)
+    assert report["rinominati"] == []
+    assert "setup:cile-rc700-qhy600-bin2" in report["creati"]
+
+
+def test_un_rename_dichiarato_troppo_tardi_si_dice_invece_di_tacere(db, sites_dir):
+    """Se il rename è stato fatto *senza* dichiararlo, il giro precedente ha già
+    creato la riga nuova e disattivato la vecchia: lo strumento è due righe.
+    Non si fondono da sole — quale id sopravvive ha conseguenze su tre tabelle
+    di storia — ma il fantasma si nomina invece di restare lì in silenzio."""
+    reconcile(sites_dir)
+    senza_dichiarazione = textwrap.dedent(SITO).replace(
+        "  - code: rc700-qhy600-bin2", "  - code: cile-rc700-qhy600-bin2")
+    (sites_dir / "cile.yml").write_text(senza_dichiarazione, encoding="utf-8")
+    reconcile(sites_dir)                       # qui nasce il fantasma
+
+    (sites_dir / "cile.yml").write_text(
+        senza_dichiarazione.replace(
+            "  - code: cile-rc700-qhy600-bin2",
+            "  - code: cile-rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]"),
+        encoding="utf-8")
+    report = reconcile(sites_dir)
+
+    assert report["rinomine_tardive"] == ["setup:rc700-qhy600-bin2→cile-rc700-qhy600-bin2"]
+    assert report["rinominati"] == []
+    # Le due righe restano tutte e due: nessuna si cancella (regola 3).
+    assert _riga("SELECT active FROM setup WHERE code='rc700-qhy600-bin2'")["active"] == 0
+    assert _riga("SELECT active FROM setup WHERE code='cile-rc700-qhy600-bin2'")["active"] == 1
+
+
+def test_non_si_sequestra_un_codice_vivo(sites_dir):
+    """`previous_codes: [rc700]` mentre `rc700` è ancora il nome di un telescopio
+    vero chiederebbe di far cambiare identità all'hardware di qualcun altro."""
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "  - code: rc700-qhy600-bin2",
+            "  - code: rc700-qhy600-bin2\n    previous_codes: [rc700]"),
+        encoding="utf-8")
+    with pytest.raises(SiteConfigError, match="codice attuale"):
+        load_sites(sites_dir)
+
+
+def test_lo_stesso_vecchio_codice_non_lo_reclamano_in_due(sites_dir):
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "  - code: rc700-qhy600-bin2",
+            "  - code: rc700-qhy600-bin2\n    previous_codes: [vecchio-setup]"),
+        encoding="utf-8")
+    (sites_dir / "altro.yml").write_text(
+        textwrap.dedent(SITO)
+        .replace("code: cile-test", "code: altro-sito")
+        .replace("  - code: rc700\n", "  - code: altro-rc700\n")
+        .replace("telescope: rc700", "telescope: altro-rc700")
+        .replace("  - code: qhy600m", "  - code: altro-qhy600m")
+        .replace("camera: qhy600m", "camera: altro-qhy600m")
+        .replace("  - code: rc700-qhy600-bin2",
+                 "  - code: altro-bin2\n    previous_codes: [vecchio-setup]"),
+        encoding="utf-8")
+    with pytest.raises(SiteConfigError, match="già reclamato"):
+        load_sites(sites_dir)
+
+
+def test_un_rename_verso_se_stesso_non_e_un_rename(sites_dir):
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "  - code: rc700-qhy600-bin2",
+            "  - code: rc700-qhy600-bin2\n    previous_codes: [rc700-qhy600-bin2]"),
+        encoding="utf-8")
+    with pytest.raises(SiteConfigError, match="verso se stesso"):
+        load_sites(sites_dir)
+
+
+def test_la_data_di_verifica_delle_specifiche_arriva_nel_database(db, sites_dir):
+    """«Da quanto non si rilegge la scheda del fornitore» è un dato, non un
+    commento: l'hardware cambia senza avvisare — T24 ha cambiato camera e ce ne
+    siamo accorti confrontando due fonti per caso."""
+    (sites_dir / "cile.yml").write_text(
+        textwrap.dedent(SITO).replace(
+            "timezone: America/Santiago",
+            "timezone: America/Santiago\nspecs_checked_at: 2026-08-18"),
+        encoding="utf-8")
+    reconcile(sites_dir)
+    assert _riga("SELECT specs_checked_at FROM observatory WHERE code='cile-test'"
+                 )["specs_checked_at"] == "2026-08-18"
+
+
+def test_senza_la_data_il_campo_resta_vuoto_invece_di_inventarsi_oggi(db, sites_dir):
+    """Un sito mai verificato non deve sembrare verificato adesso: NULL è
+    «non lo sappiamo», e la pagina scrive «mai verificate»."""
+    reconcile(sites_dir)
+    assert _riga("SELECT specs_checked_at FROM observatory WHERE code='cile-test'"
+                 )["specs_checked_at"] is None

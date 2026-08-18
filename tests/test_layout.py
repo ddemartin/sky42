@@ -40,3 +40,16 @@ def test_migliaia_con_il_punto():
     assert fmt_int(None) == "—"
     assert fmt_num(None) == "—"
     assert fmt_num(3.31017, 3) == "3.310"
+
+
+def test_le_specifiche_dell_hardware_si_misurano_in_mesi():
+    """Un catalogo orbitale vecchio di una settimana è un problema; un
+    telescopio riletto tre mesi fa quasi mai. Le due scale non si confondono."""
+    from gui.layout import specs_color
+
+    assert specs_color(None) == "grey"          # mai verificate
+    assert specs_color(30) == "positive"
+    assert specs_color(120) == "warning"
+    assert specs_color(400) == "negative"
+    # La differenza con i cataloghi: 30 giorni lì è rosso, qui è verde.
+    assert age_color(30) == "negative" and specs_color(30) == "positive"

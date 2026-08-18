@@ -76,8 +76,8 @@ def overview() -> list[dict]:
     """
     siti = _rows(
         """SELECT id, code, name, mpc_code, latitude, longitude, altitude_m, timezone,
-                  sky_zenith_mag, extinction_k, horizon_json, valid_from, valid_to,
-                  active, notes
+                  sky_zenith_mag, extinction_k, horizon_json, specs_checked_at,
+                  valid_from, valid_to, active, notes
            FROM observatory ORDER BY active DESC, name"""
     )
     setups = _rows(

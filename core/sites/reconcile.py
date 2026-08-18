@@ -16,6 +16,16 @@ Due regole del progetto vivono qui dentro:
 * **Scala e campo sono derivati**, mai letti dal file. Scriverli a mano è il
   modo più facile per avere un campo che non corrisponde a quello delle
   immagini; qui vengono da focale, riduttore, pixel e binning e basta.
+* **Un rename dichiarato è un rename, non una morte e una nascita**
+  (`previous_codes:`). Il `code` fa da identità, ma un'identità che si può
+  editare non è un'identità: correggere un codice faceva sparire la riga
+  vecchia (disattivata, con un `valid_to` che raccontava una dismissione mai
+  avvenuta) e nascere una riga nuova con un id nuovo — e con lei si staccavano
+  `setup_calibration`, `observation_log` e `state_transition`. La calibrazione
+  in particolare spariva **in silenzio**: `_has_calibration` cerca per `code`,
+  non la trovava più, e il `vlim_ref` dichiarato tornava a comandare su quello
+  misurato. Con `previous_codes` la riga si rinomina sul posto e tutto resta
+  attaccato al suo id.
 """
 from __future__ import annotations
 
@@ -58,6 +68,11 @@ _OBSERVATORY = [
     ("timezone", "str", _REQ),
     ("sky_zenith_mag", "num", 21.6),
     ("extinction_k", "num", 0.16),
+    # Quando qualcuno ha riletto per l'ultima volta la scheda del fornitore.
+    # Non è la data di modifica del file: è la data in cui una persona è andata
+    # a *controllare* che questi numeri fossero ancora quelli. Le due cose
+    # divergono — si corregge un commento senza riverificare niente.
+    ("specs_checked_at", "str", None),
     ("valid_from", "str", None),
     ("valid_to", "str", None),
     ("active", "bool", True),
@@ -126,11 +141,15 @@ _SETUP = [
 # Chiavi che il file può contenere oltre ai campi delle tabelle. Tutto il resto
 # è un errore: un `latitide:` scritto storto deve fermare il reconcile, non
 # essere ignorato in silenzio lasciando l'osservatorio all'equatore.
+# `previous_codes` non è una colonna: è un'istruzione al reconcile («questa
+# riga si chiamava così»), e per questo sta fra le chiavi extra invece che nelle
+# tabelle dei campi. Vale per tutte e quattro le entità, perché tutte e quattro
+# hanno un `code` che prima o poi qualcuno vorrà correggere.
 _EXTRA_KEYS = {
-    "observatory": {"telescopes", "cameras", "setups", "horizon"},
-    "setup": {"telescope", "camera"},
-    "telescope": set(),
-    "camera": set(),
+    "observatory": {"telescopes", "cameras", "setups", "horizon", "previous_codes"},
+    "setup": {"telescope", "camera", "previous_codes"},
+    "telescope": {"previous_codes"},
+    "camera": {"previous_codes"},
 }
 
 
@@ -213,6 +232,7 @@ def load_sites(sites_dir: Path | None = None) -> list[dict]:
 
     sites: list[dict] = []
     visti: dict[str, str] = {}          # code → file, per tutte le entità
+    ex: dict[str, str] = {}             # code dismesso da un rename → file
 
     def registra(code: str, path: Path, cosa: str) -> None:
         if code in visti:
@@ -222,12 +242,54 @@ def load_sites(sites_dir: Path | None = None) -> list[dict]:
             )
         visti[code] = path.name
 
+    def rinomina(node: dict, code: str, path: Path, cosa: str) -> list[str]:
+        """Verifica `previous_codes` e lo restituisce come lista di stringhe.
+
+        Due controlli, e nessuno dei due è pedanteria:
+
+        * un codice non può essere insieme il **vecchio** nome di una riga e il
+          nome attuale di un'altra. `previous_codes: [cile-rc700]` in un file
+          mentre un altro file dichiara ancora `code: cile-rc700` chiederebbe di
+          rinominare una riga viva, cioè di far cambiare identità all'hardware
+          di qualcun altro;
+        * lo stesso vecchio codice non può essere reclamato da due entità: la
+          riga è una, e non si sa a chi darla.
+
+        L'ordine dei file è alfabetico e la verifica incrociata avviene alla
+        fine (`_verifica_rinomine`), perché il file che *usa* un codice può
+        essere letto dopo quello che lo reclama.
+        """
+        grezzo = node.get("previous_codes")
+        if grezzo is None:
+            return []
+        if isinstance(grezzo, str):     # un codice solo si scrive anche senza lista
+            grezzo = [grezzo]
+        if not isinstance(grezzo, list) or not all(isinstance(x, str) for x in grezzo):
+            raise SiteConfigError(
+                f"{path.name} → {cosa} '{code}': 'previous_codes' dev'essere una "
+                f"lista di codici, trovato {grezzo!r}"
+            )
+        for vecchio in grezzo:
+            if vecchio == code:
+                raise SiteConfigError(
+                    f"{path.name} → {cosa} '{code}': 'previous_codes' contiene il "
+                    f"codice attuale. Un rename verso se stesso non è un rename."
+                )
+            if vecchio in ex:
+                raise SiteConfigError(
+                    f"{path.name} → {cosa} '{code}': il codice dismesso '{vecchio}' "
+                    f"è già reclamato in {ex[vecchio]}. La riga da rinominare è una."
+                )
+            ex[vecchio] = path.name
+        return grezzo
+
     for path in files:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         if raw is None:
             raise SiteConfigError(f"{path.name}: file vuoto")
         obs = _take(raw, _OBSERVATORY, "observatory", path.name)
         registra(obs["code"], path, "osservatorio")
+        obs["_previous"] = rinomina(raw, obs["code"], path, "osservatorio")
         _verifica_fuso(obs["timezone"], path.name)
 
         horizon = raw.get("horizon")
@@ -246,18 +308,21 @@ def load_sites(sites_dir: Path | None = None) -> list[dict]:
         for node in raw.get("telescopes") or []:
             t = _take(node, _TELESCOPE, "telescope", f"{path.name} → telescopes")
             registra(t["code"], path, "telescopio")
+            t["_previous"] = rinomina(node, t["code"], path, "telescopio")
             telescopi[t["code"]] = t
 
         camere = {}
         for node in raw.get("cameras") or []:
             c = _take(node, _CAMERA, "camera", f"{path.name} → cameras")
             registra(c["code"], path, "camera")
+            c["_previous"] = rinomina(node, c["code"], path, "camera")
             camere[c["code"]] = c
 
         setups = []
         for node in raw.get("setups") or []:
             s = _take(node, _SETUP, "setup", f"{path.name} → setups")
             registra(s["code"], path, "setup")
+            s["_previous"] = rinomina(node, s["code"], path, "setup")
             for campo, disponibili, cosa in (
                 ("telescope", telescopi, "telescopio"),
                 ("camera", camere, "camera"),
@@ -284,6 +349,16 @@ def load_sites(sites_dir: Path | None = None) -> list[dict]:
         obs["cameras"] = list(camere.values())
         obs["setups"] = setups
         sites.append(obs)
+
+    # Alla fine, quando tutti i file sono stati letti: un codice reclamato come
+    # «vecchio nome» non può essere il nome attuale di qualcos'altro.
+    for vecchio, dove in ex.items():
+        if vecchio in visti:
+            raise SiteConfigError(
+                f"{dove}: 'previous_codes' contiene '{vecchio}', che è il codice "
+                f"attuale di una voce in {visti[vecchio]}. Un rename sposta una "
+                f"riga, non ne sequestra una viva."
+            )
 
     return sites
 
@@ -356,6 +431,65 @@ def _upsert(conn, table: str, values: dict, report: dict) -> int:
     return int(esiste["id"])
 
 
+def _apply_rename(conn, table: str, code: str, previous: list[str], report: dict) -> None:
+    """Rinomina sul posto la riga che si chiamava in un altro modo.
+
+    Va chiamata **prima** dell'upsert: dopo, il codice nuovo esisterebbe già e
+    ci sarebbero due righe per lo stesso strumento. È tutto qui il senso della
+    funzione — l'`UPDATE ... SET code=?` tiene l'`id`, e con l'id restano
+    attaccate `setup_calibration`, `observation_log` e `state_transition`.
+
+    Tre casi, e due non fanno niente:
+
+    * il codice nuovo **non** c'è e uno dei vecchi sì → si rinomina. È il caso
+      per cui la funzione esiste;
+    * il codice nuovo c'è già → il rename è stato applicato in un giro
+      precedente, e il reconcile dev'essere idempotente. Ma se c'è **anche** una
+      riga con un codice vecchio, allora lo strumento è già diviso in due (di
+      solito perché il rename è stato fatto senza dichiararlo, e il giro prima
+      ha disattivato la riga vecchia): non si fondono da sole — quale id
+      sopravvive è una domanda con conseguenze su tre tabelle di storia — ma si
+      dice a voce alta, invece di lasciare il fantasma lì in silenzio;
+    * nessuna delle due c'è → è hardware nuovo, e `previous_codes` si riferisce
+      a una riga che non è mai esistita in questo database. Succede a chi parte
+      da un database vuoto con gli YAML già rinominati, ed è normale.
+    """
+    if not previous:
+        return
+    nuovo = conn.execute(f"SELECT id FROM {table} WHERE code=?", (code,)).fetchone()
+    vecchie = [r for r in conn.execute(
+        f"SELECT id, code, active FROM {table} "
+        f"WHERE code IN ({','.join('?' * len(previous))})", previous).fetchall()]
+
+    if nuovo is not None:
+        for r in vecchie:
+            log.warning(
+                "%s '%s' e '%s' esistono tutti e due: il rename è arrivato dopo che "
+                "il database aveva già creato la riga nuova. Le due righe non si "
+                "fondono da sole — id %d resta con la sua storia.",
+                table, r["code"], code, r["id"])
+            report["rinomine_tardive"].append(f"{table}:{r['code']}→{code}")
+        return
+
+    if not vecchie:
+        return
+    if len(vecchie) > 1:
+        raise SiteConfigError(
+            f"{table} '{code}': 'previous_codes' trova più di una riga "
+            f"({', '.join(r['code'] for r in vecchie)}). Quale sia lo strumento "
+            f"non lo può decidere il reconcile."
+        )
+
+    r = vecchie[0]
+    # `valid_to` si azzera **solo** se la riga era stata disattivata proprio
+    # dall'assenza che il rename adesso spiega. Una riga dismessa sul serio e
+    # poi rinominata resta dismessa: sarà `active: false` nello YAML a dirlo.
+    conn.execute(f"UPDATE {table} SET code=? WHERE id=?", (code, r["id"]))
+    report["rinominati"].append(f"{table}:{r['code']}→{code}")
+    log.info("%s: rinominato '%s' → '%s' (id %d, storia conservata)",
+             table, r["code"], code, r["id"])
+
+
 def _deactivate_missing(conn, table: str, tenuti: set[str], report: dict) -> None:
     """Quello che non è più nello YAML esce di servizio, non sparisce.
 
@@ -392,8 +526,8 @@ def reconcile(sites_dir: Path | None = None) -> dict:
     sites = load_sites(sites_dir)      # tutto verificato *prima* di aprire la transazione
 
     report: dict = {
-        "creati": [], "aggiornati": [], "disattivati": [],
-        "vlim_tenuti": [], "siti": len(sites),
+        "creati": [], "aggiornati": [], "disattivati": [], "rinominati": [],
+        "rinomine_tardive": [], "vlim_tenuti": [], "siti": len(sites),
     }
 
     conn = connect()
@@ -404,26 +538,41 @@ def reconcile(sites_dir: Path | None = None) -> dict:
 
             for site in sites:
                 obs_cols = {k: v for k, v in site.items()
-                            if k not in ("telescopes", "cameras", "setups", "file")}
+                            if k not in ("telescopes", "cameras", "setups", "file",
+                                         "_previous")}
+                _apply_rename(conn, "observatory", site["code"], site["_previous"], report)
                 obs_id = _upsert(conn, "observatory", obs_cols, report)
                 codici["observatory"].add(site["code"])
 
                 telescopi = {}
                 for t in site["telescopes"]:
                     telescopi[t["code"]] = t
-                    t_id = _upsert(conn, "telescope", {**t, "observatory_id": obs_id}, report)
+                    _apply_rename(conn, "telescope", t["code"], t["_previous"], report)
+                    cols = {k: v for k, v in t.items() if k != "_previous"}
+                    t_id = _upsert(conn, "telescope", {**cols, "observatory_id": obs_id},
+                                   report)
                     t["_id"] = t_id
                     codici["telescope"].add(t["code"])
 
                 camere = {}
                 for c in site["cameras"]:
                     camere[c["code"]] = c
-                    c["_id"] = _upsert(conn, "camera", c, report)
+                    _apply_rename(conn, "camera", c["code"], c["_previous"], report)
+                    c["_id"] = _upsert(
+                        conn, "camera",
+                        {k: v for k, v in c.items() if k != "_previous"}, report)
                     codici["camera"].add(c["code"])
 
                 for s in site["setups"]:
                     tel, cam = telescopi[s["telescope"]], camere[s["camera"]]
-                    cols = {k: v for k, v in s.items() if k not in ("telescope", "camera")}
+                    # Prima di ogni altra cosa, e in particolare **prima** di
+                    # `_has_calibration`: quella cerca per `code`, e su un setup
+                    # appena rinominato non troverebbe le misure che invece ci
+                    # sono, riportando il `vlim_ref` dichiarato sopra a quello
+                    # tarato sul campo.
+                    _apply_rename(conn, "setup", s["code"], s["_previous"], report)
+                    cols = {k: v for k, v in s.items()
+                            if k not in ("telescope", "camera", "_previous")}
                     cols.update(derive_optics(tel, cam, s))
                     cols["observatory_id"] = obs_id
                     cols["telescope_id"] = tel["_id"]
@@ -450,7 +599,8 @@ def reconcile(sites_dir: Path | None = None) -> dict:
         conn.close()
 
     log.info(
-        "reconcile siti: %d creati, %d aggiornati, %d disattivati",
-        len(report["creati"]), len(report["aggiornati"]), len(report["disattivati"]),
+        "reconcile siti: %d creati, %d aggiornati, %d rinominati, %d disattivati",
+        len(report["creati"]), len(report["aggiornati"]),
+        len(report["rinominati"]), len(report["disattivati"]),
     )
     return report

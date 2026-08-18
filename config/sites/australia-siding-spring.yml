@@ -21,57 +21,70 @@
 # Il codice camera è `<sito>-<modello>`: il telescopio non ci entra, perché
 # l'accoppiata telescopio+camera **è** il setup.
 
-code: utah-great-basin-desert
-name: Great Basin Desert, Utah USA
-mpc_code: U94
-latitude: 37.7378              # N 37° 44' 16", dalla scheda
-longitude: -113.6975            # W 113° 41' 51", dalla scheda
-altitude_m: 1570          # dalla scheda di supporto
-timezone: America/Denver
+code: australia-sso
+name: Siding Spring Observatory, Australia
+mpc_code: Q62
+latitude: -31.27333            # S 31° 16' 24", dalla scheda
+longitude: 149.06444            # E 149° 03' 52", dalla scheda
+altitude_m: 1122          # dalla scheda di supporto
+timezone: Australia/Sydney
 specs_checked_at: 2026-08-18   # riletta la scheda di supporto di ogni telescopio
 
 # Qualità del cielo: entra nel modello di brillanza lunare, non è un commento.
 sky_zenith_mag: 21.6        # V mag/arcsec² in notte scura senza Luna
 extinction_k: 0.16          # mag/airmass in banda V
 
-telescopes:
-  - code: iTelescopeT11
-    name: Planewave CDK 20"
-    aperture_mm: 508
-    focal_length_mm: 2280          # scheda 2023-03, f/6.8 + riduttore f/4.5
-    design: Corrected Dall-Kirkham
-    min_altitude_deg: 15
-    max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
-    meridian_flip: false
+# T31 (CDK20) NON va aggiunto: comprato da un privato, fuori rete.
+# T17 è OFFLINE da mesi (verificato 2026-08-18): resta qui fuori servizio,
+# torna con `active: true` sul suo setup.
 
-  - code: iTelescopeT21
+telescopes:
+  - code: iTelescopeT17
     name: Planewave CDK 17"
     aperture_mm: 431
-    focal_length_mm: 1940          # scheda 2024-10, f/6.8 + riduttore 0.66
+    focal_length_mm: 2912          # scheda 2024-06, f/6.8. Orizzonte 20°W 35°N/S 55°E
     design: Corrected Dall-Kirkham
-    min_altitude_deg: 15
+    min_altitude_deg: 20
     max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
     meridian_flip: false
 
-  - code: iTelescopeT25
+  - code: iTelescopeT30
     name: Planewave CDK 20"
     aperture_mm: 508
-    focal_length_mm: 3454          # scheda 2024-08: 0.45"/px bin2 → f/6.8 nativo, il riduttore in testata non torna
+    focal_length_mm: 2285          # scheda 2024-08, f/6.8
     design: Corrected Dall-Kirkham
-    min_altitude_deg: 15
+    min_altitude_deg: 25
+    max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
+    meridian_flip: false
+
+  - code: iTelescopeT32
+    name: Planewave CDK 17"
+    aperture_mm: 431
+    focal_length_mm: 2912          # scheda 2025-08, f/6.8. Orizzonte 18°E/N 38°W 18°S
+    design: Corrected Dall-Kirkham
+    min_altitude_deg: 18
+    max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
+    meridian_flip: false
+
+  - code: iTelescopeT59
+    name: Planewave CDK 20"
+    aperture_mm: 508
+    focal_length_mm: 3411          # scheda 2022-06, f/6.8. Orizzonte 37°E 23°N 14°W 11°S
+    design: Corrected Dall-Kirkham
+    min_altitude_deg: 11
     max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
     meridian_flip: false
 
 cameras:
-  - code: udro-PL11002M
-    name: FLI ProLine PL11002M
-    sensor: KAI-11002
-    pixel_um: 9
-    pixels_x: 4008
-    pixels_y: 2672
-    read_noise_e: 13              # nominale da datasheet, non misurato
+  - code: sso-ASI6200MM
+    name: ZWO ASI6200MM Pro
+    sensor: IMX455
+    pixel_um: 3.76
+    pixels_x: 9576
+    pixels_y: 6388
+    read_noise_e: 1.5              # nominale da datasheet, non misurato
 
-  - code: udro-PL6303E
+  - code: sso-PL6303E
     name: FLI PL6303E
     sensor: KAF-6303E
     pixel_um: 9
@@ -79,40 +92,19 @@ cameras:
     pixels_y: 2048
     read_noise_e: 10              # nominale da datasheet, non misurato
 
-  - code: udro-ZEUS455M
-    name: Player One Zeus 455M Pro
-    sensor: IMX455
-    pixel_um: 3.76
-    pixels_x: 9576
-    pixels_y: 6388
-    read_noise_e: 1.5              # nominale da datasheet, non misurato
+  - code: sso-PL16803
+    name: FLI Proline 16803
+    sensor: KAF-16803
+    pixel_um: 9
+    pixels_x: 4096
+    pixels_y: 4096
+    read_noise_e: 10              # nominale da datasheet, non misurato
 
 setups:
-  - code: iTelescopeT11-bin2
-    name: T11 — CDK 20" + FLI ProLine PL11002M bin2 L
-    telescope: iTelescopeT11
-    camera: udro-PL11002M
-    binning: 2
-    filter: L
-    focal_reducer: 1.0
-    # Stima iniziale: setup_calibration la corregge con le misure vere.
-    vlim_ref: 21.0                    # scalata sull'apertura, S/N≈5
-    vlim_ref_exposure_s: 120
-    vlim_astrometric_delta: -0.5
-    typical_exposure_s: 60
-    max_exposure_s: 600                # dalla scheda di supporto iTelescope
-    max_airmass: 2.0
-    typical_seeing_arcsec: 1.6
-    sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
-    # cost_per_hour: 0.0              # da riempire con il listino iTelescope
-    # currency: USD
-    valid_from: 2026-01-01
-    active: true
-
-  - code: iTelescopeT21-bin2
-    name: T21 — CDK 17" + FLI PL6303E bin2 L
-    telescope: iTelescopeT21
-    camera: udro-PL6303E
+  - code: iTelescopeT17-bin2
+    name: T17 — CDK 17" + ZWO ASI6200MM Pro bin2 L
+    telescope: iTelescopeT17
+    camera: sso-ASI6200MM
     binning: 2
     filter: L
     focal_reducer: 1.0
@@ -121,7 +113,28 @@ setups:
     vlim_ref_exposure_s: 120
     vlim_astrometric_delta: -0.5
     typical_exposure_s: 60
-    max_exposure_s: 600                # dalla scheda di supporto iTelescope
+    max_exposure_s: 240                # dalla scheda di supporto iTelescope
+    max_airmass: 2.0
+    typical_seeing_arcsec: 1.6
+    sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
+    # cost_per_hour: 0.0              # da riempire con il listino iTelescope
+    # currency: USD
+    valid_from: 2026-01-01
+    active: false
+
+  - code: iTelescopeT30-bin2
+    name: T30 — CDK 20" + FLI PL6303E bin2 L
+    telescope: iTelescopeT30
+    camera: sso-PL6303E
+    binning: 2
+    filter: L
+    focal_reducer: 1.0
+    # Stima iniziale: setup_calibration la corregge con le misure vere.
+    vlim_ref: 21.0                    # scalata sull'apertura, S/N≈5
+    vlim_ref_exposure_s: 120
+    vlim_astrometric_delta: -0.5
+    typical_exposure_s: 60
+    max_exposure_s: 300                # dalla scheda di supporto iTelescope
     max_airmass: 2.0
     typical_seeing_arcsec: 1.6
     sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
@@ -130,10 +143,31 @@ setups:
     valid_from: 2026-01-01
     active: true
 
-  - code: iTelescopeT25-bin2
-    name: T25 — CDK 20" + Player One Zeus 455M Pro bin2 L
-    telescope: iTelescopeT25
-    camera: udro-ZEUS455M
+  - code: iTelescopeT32-bin2
+    name: T32 — CDK 17" + ZWO ASI6200MM Pro bin2 L
+    telescope: iTelescopeT32
+    camera: sso-ASI6200MM
+    binning: 2
+    filter: L
+    focal_reducer: 1.0
+    # Stima iniziale: setup_calibration la corregge con le misure vere.
+    vlim_ref: 20.5                    # scalata sull'apertura, S/N≈5
+    vlim_ref_exposure_s: 120
+    vlim_astrometric_delta: -0.5
+    typical_exposure_s: 60
+    max_exposure_s: 300                # dalla scheda di supporto iTelescope
+    max_airmass: 2.0
+    typical_seeing_arcsec: 1.6
+    sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
+    # cost_per_hour: 0.0              # da riempire con il listino iTelescope
+    # currency: USD
+    valid_from: 2026-01-01
+    active: true
+
+  - code: iTelescopeT59-bin2
+    name: T59 — CDK 20" + FLI Proline 16803 bin2 L
+    telescope: iTelescopeT59
+    camera: sso-PL16803
     binning: 2
     filter: L
     focal_reducer: 1.0

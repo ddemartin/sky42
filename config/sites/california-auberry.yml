@@ -21,86 +21,48 @@
 # Il codice camera è `<sito>-<modello>`: il telescopio non ci entra, perché
 # l'accoppiata telescopio+camera **è** il setup.
 
-code: cile-rio-hurtado
-name: Deep Sky Chile, Río Hurtado
-mpc_code: X07
-latitude: -30.52631            # S 30° 31' 34.712", dalla scheda di T72
-longitude: -70.85330            # W 70° 51' 11.865", dalla scheda di T72
-altitude_m: 1710          # dalla scheda di supporto
-timezone: America/Santiago
+code: usa-sierra-remote
+name: Sierra Remote Observatories, Auberry, California USA
+mpc_code: U69
+latitude: 37.07                # dalla scheda di T24
+longitude: -119.4               # dalla scheda di T24
+altitude_m: 1405          # dalla scheda di supporto
+timezone: America/Los_Angeles
 specs_checked_at: 2026-08-18   # riletta la scheda di supporto di ogni telescopio
 
 # Qualità del cielo: entra nel modello di brillanza lunare, non è un commento.
-sky_zenith_mag: 21.8        # V mag/arcsec² in notte scura senza Luna
-extinction_k: 0.14          # mag/airmass in banda V
+sky_zenith_mag: 21.5        # V mag/arcsec² in notte scura senza Luna
+extinction_k: 0.16          # mag/airmass in banda V
 
 telescopes:
-  - code: iTelescopeT72
-    name: Planewave CDK 20"
-    aperture_mm: 510
-    focal_length_mm: 3411          # scheda 2024-01, f/6.8
-    design: Corrected Dall-Kirkham
-    min_altitude_deg: 15
-    max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
-    meridian_flip: false
-
-  - code: iTelescopeT73
-    name: Planewave CDK 14"
-    aperture_mm: 356
-    focal_length_mm: 2563          # STIMA: nessuna scheda di supporto. Focale nativa CDK14 (f/7.2)
+  - code: iTelescopeT24
+    name: Planewave CDK 24"
+    aperture_mm: 610
+    focal_length_mm: 3927          # scheda 2026-08 (la più fresca), f/6.5. Bin2 obbligatorio
     design: Corrected Dall-Kirkham
     min_altitude_deg: 25
     max_track_rate_arcsec_min: 300    # null se non c'è un limite noto
     meridian_flip: false
 
 cameras:
-  - code: dsc-ML16200
-    name: FLI ML16200
-    sensor: KAF-16200
-    pixel_um: 6
-    pixels_x: 4500
-    pixels_y: 3600
-    read_noise_e: 10              # nominale da datasheet, non misurato
-
-  - code: dsc-ASI2600MM
-    name: ZWO ASI2600MM Pro
-    sensor: IMX571
+  - code: sro-ZEUS455M
+    name: Player One Zeus 455M Pro
+    sensor: IMX455
     pixel_um: 3.76
-    pixels_x: 6248
-    pixels_y: 4176
+    pixels_x: 9576
+    pixels_y: 6388
     read_noise_e: 1.5              # nominale da datasheet, non misurato
 
 setups:
-  - code: iTelescopeT72-bin2
-    name: T72 — CDK 20" + FLI ML16200 bin2 L
-    telescope: iTelescopeT72
-    camera: dsc-ML16200
+  - code: iTelescopeT24-bin2
+    name: T24 — CDK 24" + Player One Zeus 455M Pro bin2 L
+    telescope: iTelescopeT24
+    camera: sro-ZEUS455M
     binning: 2
     filter: L
     focal_reducer: 1.0
     # Stima iniziale: setup_calibration la corregge con le misure vere.
-    vlim_ref: 21.0                    # scalata sull'apertura, S/N≈5
-    vlim_ref_exposure_s: 120
-    vlim_astrometric_delta: -0.5
-    typical_exposure_s: 60
-    max_exposure_s: 600                # dalla scheda di supporto iTelescope
-    max_airmass: 2.0
-    typical_seeing_arcsec: 1.6
-    sun_alt_max_deg: -15              # accetta l'ultima parte del crepuscolo nautico
-    # cost_per_hour: 0.0              # da riempire con il listino iTelescope
-    # currency: USD
-    valid_from: 2026-01-01
-    active: true
-
-  - code: iTelescopeT73-bin2
-    name: T73 — CDK 14" + ZWO ASI2600MM Pro bin2 L
-    telescope: iTelescopeT73
-    camera: dsc-ASI2600MM
-    binning: 2
-    filter: L
-    focal_reducer: 1.0
-    # Stima iniziale: setup_calibration la corregge con le misure vere.
-    vlim_ref: 19.9                    # scalata sull'apertura, S/N≈5
+    vlim_ref: 21.5                    # scalata sull'apertura, S/N≈5
     vlim_ref_exposure_s: 120
     vlim_astrometric_delta: -0.5
     typical_exposure_s: 60
