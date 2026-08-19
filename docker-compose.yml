@@ -31,11 +31,18 @@ services:
       #
       # L'indirizzo di ascolto è esplicito e di default è 127.0.0.1: pubblicare
       # senza indirizzo lega la porta a **tutte** le interfacce, e sky42 non ha
-      # autenticazione. Per raggiungerlo dalle altre macchine si mette
-      # l'indirizzo Tailscale di questa in SKY42_BIND_IP (file .env), non
-      # 0.0.0.0: così il servizio esiste per la tailnet e non per il Wi-Fi di
-      # casa. Dentro il container l'ascolto resta 0.0.0.0, o la porta
+      # autenticazione. Dentro il container l'ascolto resta 0.0.0.0, o la porta
       # pubblicata non raggiungerebbe nessuno.
+      #
+      # Le altre macchine passano da un **servizio** Tailscale, come brain42,
+      # stock42 e meteo42 — non dalla LAN e non da 0.0.0.0:
+      #
+      #     tailscale serve --service=svc:sky42 --bg --yes http://127.0.0.1:8242
+      #     → https://sky42.tail1a68b4.ts.net/
+      #
+      # Quindi questo binding resta su 127.0.0.1. SKY42_BIND_IP (file .env)
+      # esiste come via alternativa — pubblicare la porta direttamente
+      # sull'indirizzo Tailscale della macchina — ma col servizio non serve.
       - "${SKY42_BIND_IP:-127.0.0.1}:8242:8000"
 
     volumes:

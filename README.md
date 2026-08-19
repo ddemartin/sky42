@@ -242,17 +242,60 @@ coordinamento fra scrittori passa da un file di memoria condivisa che non
 attraversa il confine della VM. Dall'host si usa `cli.py` solo a servizio
 fermo.
 
-Per raggiungerlo da un'altra macchina si mette in `.env` l'indirizzo Tailscale
-**di questa** macchina:
+### Dalle altre macchine
 
-```
-SKY42_BIND_IP=100.x.y.z
+**<https://sky42.tail1a68b4.ts.net/>** — dentro la tailnet, niente esposto su
+Internet. È l'indirizzo di un **servizio Tailscale**, come per brain42, stock42
+e meteo42: il nome appartiene al servizio, non alla macchina, e l'host che lo
+ospita si dichiara con
+
+```bash
+tailscale serve --service=svc:sky42 --bg --yes http://127.0.0.1:8242
 ```
 
-Non `0.0.0.0`, che lo esporrebbe anche alla rete locale: sky42 non ha
-autenticazione. Dentro la tailnet va bene; il giorno di `tailscale funnel`
-l'autenticazione arriva prima. In alternativa a Docker c'è un LaunchAgent
-pronto in [scripts/](scripts/com.ddemartin.sky42.plist).
+La porta resta legata al solo loopback del Mac: `serve` inoltra lì il traffico
+HTTPS del tailnet, e sulla LAN la porta non c'è proprio — sky42 non ha
+autenticazione, e il giorno di `tailscale funnel` l'autenticazione arriva
+prima. `SKY42_BIND_IP` resta nel `.env` come via alternativa (pubblicare la
+porta direttamente sull'indirizzo Tailscale della macchina), ma col servizio
+non serve: si lascia a `127.0.0.1`.
+
+**L'ordine conta, ed è il primo passo quello che manca in genere.** Il
+servizio va *creato* nella console (<https://login.tailscale.com/admin/services>,
+nome `sky42` senza il prefisso `svc:`): è la creazione che assegna il VIP, e
+finché il VIP non c'è l'`autoApprovers` non ha niente da approvare — l'host
+annuncia nel vuoto e la console dice «0 hosts» senza nemmeno un candidato in
+attesa. Quindi: **1.** crea il servizio in console, **2.** metti in policy
+grant e autoApprover, **3.** `tailscale serve` qui, **4.** `drain` +
+`advertise`. L'approvazione arriva da sola in circa un minuto.
+
+Nella policy del tailnet servono due cose distinte — il **grant** decide chi
+può *raggiungere* il servizio (la regola generica `dst: ["*"]` non copre i
+servizi), gli **autoApprovers** chi può *ospitarlo*:
+
+```json
+"autoApprovers": {"services": {"svc:sky42": ["tag:brain42-host"]}},
+"grants": [
+	{"src": ["autogroup:member", "tag:brain42-host"],
+	 "dst": ["svc:sky42"], "ip": ["tcp:443"]},
+],
+```
+
+| sintomo | causa | rimedio |
+|---|---|---|
+| dominio inesistente | il servizio non esiste nel tailnet: senza VIP il nome non ha nulla dietro | crealo in console, poi `drain` + `advertise` |
+| il nome risolve ma il TCP va in timeout | il VIP c'è, l'host non è approvato | gli `autoApprovers` qui sopra, poi `tailscale serve drain svc:sky42 && tailscale serve advertise svc:sky42` |
+| `502` dal nome del servizio | il servizio c'è, l'app no | `docker compose up -d` |
+| `serve status --json` non elenca `svc:sky42` | la configurazione è sparita | rieseguire il comando qui sopra |
+
+`tailscale serve status` che dice `No serve config` **non è un guasto**: quel
+comando guarda la configurazione del *nodo*, e `svc:sky42` è un *servizio* —
+si vede solo con `--json`. E `tailscale` non è nel PATH di macOS: sul Mac mini
+c'è un involucro in `/usr/local/bin/tailscale` (non un symlink, che non
+funziona).
+
+In alternativa a Docker c'è un LaunchAgent pronto in
+[scripts/](scripts/com.ddemartin.sky42.plist).
 
 ## Cosa gira da solo
 

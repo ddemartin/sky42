@@ -273,6 +273,13 @@ container resta unhealthy finché qualcuno guarda.
 `data/` non viene toccata. Se il lavoro ha cambiato lo schema, la migrazione
 gira all'avvio e deve essere idempotente.
 
+Dalle altre macchine sky42 si raggiunge da **<https://sky42.tail1a68b4.ts.net/>**,
+un *servizio* Tailscale che inoltra su `127.0.0.1:8242` — come brain42, stock42
+e meteo42. La porta non è mai esposta alla LAN: sky42 non ha autenticazione.
+`tailscale serve status` che dice `No serve config` non è un guasto — i servizi
+si vedono solo con `--json`. Comando, policy del tailnet e sintomi in
+[README.md](README.md).
+
 ## Sincronia della documentazione
 
 - **MEMORANDUM.md a ogni scelta.** Una decisione architetturale, un formato

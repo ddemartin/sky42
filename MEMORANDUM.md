@@ -2739,6 +2739,83 @@ differenza fra «non ce l'ho» e «non ce l'ho **adesso**».
 
 ---
 
+## 2026-08-19 — l'accesso dalle altre macchine: un *servizio* Tailscale, non un indirizzo
+
+Il 15 agosto avevo deciso di legare la porta all'indirizzo Tailscale della
+macchina (`SKY42_BIND_IP=100.x.y.z`). Funziona, ma è la forma peggiore delle
+tre che il Mac mini usa già: brain42, stock42 e meteo42 stanno tutti dietro un
+**servizio** Tailscale, e sky42 era l'unico fuori riga.
+
+```bash
+tailscale serve --service=svc:sky42 --bg --yes http://127.0.0.1:8242
+```
+
+La differenza non è estetica. Con l'indirizzo si dipende dalla *macchina*: il
+nome cambia se l'applicazione trasloca, e l'indirizzo esiste solo dopo che
+`tailscaled` è partito — un vincolo di ordine d'avvio che con Docker su macOS
+non si esprime (`depends_on` non attraversa il confine). Con il servizio il
+nome appartiene al servizio: `https://sky42.tail1a68b4.ts.net/` resta lo stesso
+il giorno del trasloco (`serve drain` di qua, lo stesso comando di là), la
+porta resta su `127.0.0.1` e l'ordine d'avvio non conta più — se l'app non c'è
+ancora, il nome risponde `502` invece di non esistere, che è un guasto molto
+più leggibile. In più arriva HTTPS con certificato vero, e quindi la porta
+aperta ai contesti sicuri del browser il giorno di un grafico interattivo o di
+una PWA.
+
+`SKY42_BIND_IP` resta nel `.env` e nel compose, con default `127.0.0.1`: costa
+una variabile, e il giorno in cui Tailscale desse fastidio è la via di scampo
+già scritta. Semplicemente non si usa.
+
+**Alternativa scartata:** `SKY42_HOST=0.0.0.0`. Esporrebbe una console senza
+autenticazione a chiunque sia sul Wi-Fi di casa, ospiti compresi. La regola di
+brain42 vale identica e non cambia: il giorno di `tailscale funnel` —  cioè si
+esce su Internet — l'autenticazione arriva **prima**, non dopo.
+
+Il costo di configurazione l'aveva già pagato meteo42, e la lezione è quella:
+nella ACL servono **due** permessi distinti, ed è la confusione fra i due che
+fa perdere tempo. Il *grant* decide chi può raggiungere il servizio — la regola
+generica `dst: ["*"]` non copre i servizi — gli *autoApprovers* chi può
+ospitarlo. Senza i secondi l'host resta in attesa di un'approvazione manuale
+che la console non offre in modo evidente, e il nome non risolve pur essendo
+tutto configurato. E il demone non recepisce l'approvazione da solo
+([bug noto](https://github.com/tailscale/tailscale/issues/18821)): serve il
+ciclo `serve drain` + `serve advertise`. Sintomi e diagnosi in
+[README.md](README.md), dove servono sotto mano.
+
+Messo in opera lo stesso giorno, e **il primo passo non è nessuno di quelli
+scritti sopra**: il servizio va *creato* nella console
+(<https://login.tailscale.com/admin/services>) prima di ogni altra cosa. È la
+creazione che assegna il VIP — qui `100.111.187.38` — e finché il VIP non
+esiste l'`autoApprovers` non ha niente da approvare: il nodo annuncia
+regolarmente, `tailscale debug prefs` mostra `svc:sky42` in
+`AdvertiseServices` col tag giusto, e la console dice «0 hosts» **senza
+nemmeno un host in attesa**. Nessuno dei due progetti precedenti se n'era
+accorto perché lì servizio e policy erano già a posto prima del primo `serve`,
+e il passo è sparito dentro «ha funzionato».
+
+L'ordine, allora: **1.** crea il servizio in console, **2.** grant +
+autoApprover in policy, **3.** `tailscale serve` sull'host, **4.** `drain` +
+`advertise`. Il quarto passo va fatto **dopo** che il VIP esiste: rifatto in
+quel momento, l'approvazione è arrivata da sola in ~60 s.
+
+Due strade percorse per niente, che vale la pena scrivere perché costano un
+quarto d'ora ciascuna e sembrano entrambe ragionevoli. La prima: sospettare la
+policy non salvata — sintomo compatibile, ma la policy era corretta. La
+seconda: `tailscale down && tailscale up`, sull'ipotesi che l'`autoApprovers`
+si valuti alla registrazione del nodo. Non è così, e non è gratis: fa cadere
+per qualche secondo anche gli altri tre servizi della stessa macchina. **Il
+sintomo che distingue davvero** è a costo zero e lo si guardi per primo: se il
+nome **non risolve**, manca il servizio (o il suo VIP); se il nome **risolve e
+il TCP va in timeout**, il servizio c'è e manca l'approvazione dell'host. Sono
+due guasti diversi e chiedono due rimedi diversi.
+
+Una diagnosi che **non** è probante, e vale la pena scriverla: provare col VIP
+nudo (`https://100.x.y.z/`) fallisce sempre, anche a servizio perfetto —
+`serve` sceglie il certificato dall'SNI e un URL con l'IP non ne manda.
+L'unica lettura valida di quel test è *quale* errore dà: un errore TLS
+significa che il TCP è passato, quindi tunnel, routing e ACL funzionano e il
+sospetto va spostato sulla risoluzione del nome.
+
 ## Domande aperte
 
 Si chiudono con numeri misurati, non con previsioni.
